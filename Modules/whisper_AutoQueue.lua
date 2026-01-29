@@ -7,7 +7,6 @@ whisper:RegisterModule("Auto Queue", AutoQueue)
 -- Locals
 -- =========================
 local CompleteLFGRoleCheck = CompleteLFGRoleCheck
-local print = print
 
 -- State
 local isActive = true
