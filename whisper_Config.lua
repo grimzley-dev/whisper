@@ -29,7 +29,7 @@ local COLOR_RESET = "|r"
 local COLOR_RED = {1, 0.2, 0.2}
 local COLOR_GREEN = {0, 1, 0.2}
 local COLOR_WHITE = {1, 1, 1}
-local COLOR_PURPLE = {0.5, 0.5, 1} 
+local COLOR_PURPLE = {0.5, 0.5, 1}
 local COLOR_CYAN = {0.2, 0.8, 1}
 
 -- State Variables
@@ -61,19 +61,19 @@ local function CreateStyledButton(parent, text, width, height)
     btn:SetSize(width, height)
     btn:SetText(text)
     btn:SetPushedTextOffset(0, 0)
-    
+
     local fs = btn:GetFontString() or btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     btn:SetFontString(fs)
     fs:SetPoint("CENTER", 0, 0)
-    fs:SetFont(Style.STANDARD_FONT, 14, "OUTLINE") 
+    fs:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
     fs:SetTextColor(1, 1, 1)
-    
+
     btn:SetBackdrop(Style.Backdrop)
     btn:SetBackdropColor(unpack(Style.Colors.Background))
     btn:SetBackdropBorderColor(unpack(Style.Colors.Border))
 
     btn.textColor = Style.Colors.White
-    
+
     btn:SetScript("OnEnter", function(self)
         if self:IsEnabled() then
             self:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
@@ -90,23 +90,23 @@ end
 local function CreateMinimalButton(parent, text, width, height)
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(width, height)
-    
+
     local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    fs:SetPoint("CENTER", 0, 2) 
-    fs:SetFont(STANDARD_FONT, 20, "OUTLINE") 
+    fs:SetPoint("CENTER", 0, 2)
+    fs:SetFont(STANDARD_FONT, 20, "OUTLINE")
     fs:SetText(text)
     fs:SetTextColor(1, 1, 1)
     btn:SetFontString(fs)
-    
-    btn:SetScript("OnEnter", function(self) fs:SetTextColor(0.8, 0.8, 0.8) end) 
+
+    btn:SetScript("OnEnter", function(self) fs:SetTextColor(0.8, 0.8, 0.8) end)
     btn:SetScript("OnLeave", function(self) fs:SetTextColor(1, 1, 1) end)
-    
+
     return btn
 end
 
 local function CreateCustomSlider(parent, label, minVal, maxVal, step, getFunc, setFunc)
     local frame = CreateFrame("Frame", nil, parent)
-    frame:SetSize(420, 50) 
+    frame:SetSize(420, 50)
 
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("TOPLEFT", 0, 0)
@@ -123,42 +123,42 @@ local function CreateCustomSlider(parent, label, minVal, maxVal, step, getFunc, 
     minusBtn:SetPoint("LEFT", 0, 0)
 
     -- RIGHT: EditBox
-    local editBox = CreateFrame("EditBox", nil, controls) 
+    local editBox = CreateFrame("EditBox", nil, controls)
     editBox:SetSize(50, 20)
     editBox:SetPoint("RIGHT", 0, 0)
     editBox:SetFont(STANDARD_FONT, 12, "OUTLINE")
-    editBox:SetJustifyH("CENTER") 
+    editBox:SetJustifyH("CENTER")
     editBox:SetAutoFocus(false)
     editBox:SetTextColor(1, 1, 1)
 
     -- MIDDLE-RIGHT: Plus Button
     local plusBtn = CreateMinimalButton(controls, "+", 32, 32)
-    plusBtn:SetPoint("RIGHT", editBox, "LEFT", -2, -1) 
+    plusBtn:SetPoint("RIGHT", editBox, "LEFT", -2, -1)
 
     -- MIDDLE: Slider Bar
     local sliderBg = controls:CreateTexture(nil, "BACKGROUND")
     sliderBg:SetTexture(BAR_TEXTURE)
     sliderBg:SetVertexColor(0.2, 0.2, 0.2, 1)
     sliderBg:SetHeight(6)
-    
+
     sliderBg:SetPoint("LEFT", minusBtn, "RIGHT", -4, 0)
     sliderBg:SetPoint("RIGHT", plusBtn, "LEFT", 0, 0)
-    
+
     local slider = CreateFrame("Slider", nil, controls)
-    slider:SetOrientation("HORIZONTAL") 
+    slider:SetOrientation("HORIZONTAL")
     slider:SetPoint("LEFT", sliderBg, "LEFT")
     slider:SetPoint("RIGHT", sliderBg, "RIGHT")
     slider:SetPoint("CENTER", sliderBg, "CENTER")
     slider:SetHeight(30)
     slider:SetMinMaxValues(minVal, maxVal)
-    slider:SetValueStep(step) 
+    slider:SetValueStep(step)
     slider:SetObeyStepOnDrag(true)
-    slider:SetHitRectInsets(0, 0, -10, -10) 
-    
+    slider:SetHitRectInsets(0, 0, -10, -10)
+
     local thumb = slider:CreateTexture(nil, "ARTWORK")
     thumb:SetTexture(BAR_TEXTURE)
-    thumb:SetVertexColor(0.6, 0.6, 0.6, 1) 
-    thumb:SetSize(40, 10) 
+    thumb:SetVertexColor(0.6, 0.6, 0.6, 1)
+    thumb:SetSize(40, 10)
     slider:SetThumbTexture(thumb)
 
     local isInternalUpdate = false
@@ -168,7 +168,7 @@ local function CreateCustomSlider(parent, label, minVal, maxVal, step, getFunc, 
         editBox:SetText(tostring(val))
         isInternalUpdate = false
     end
-    
+
     editBox:SetScript("OnEnterPressed", function(self)
         local val = tonumber(self:GetText())
         if val then
@@ -177,7 +177,7 @@ local function CreateCustomSlider(parent, label, minVal, maxVal, step, getFunc, 
             setFunc(val)
             UpdateVisuals(val)
         else
-            UpdateVisuals(getFunc()) 
+            UpdateVisuals(getFunc())
         end
         self:ClearFocus()
     end)
@@ -206,12 +206,12 @@ local function CreateCustomSlider(parent, label, minVal, maxVal, step, getFunc, 
         setFunc(newVal)
         UpdateVisuals(newVal)
     end)
-    
+
     UpdateVisuals(getFunc())
-    
+
     -- Store reference to UpdateVisuals for external updates
     frame.UpdateVisuals = UpdateVisuals
-    
+
     return frame
 end
 
@@ -219,7 +219,7 @@ local function CreateModuleButton(parent, text, width, height)
     local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
     btn:SetSize(width, height)
     btn:SetPushedTextOffset(0, 0)
-    
+
     local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     btn:SetFontString(fs)
     fs:SetPoint("LEFT", 15, 0)
@@ -227,11 +227,11 @@ local function CreateModuleButton(parent, text, width, height)
     fs:SetFont(Style.STANDARD_FONT, 13, "OUTLINE")
     fs:SetText(text)
     fs:SetTextColor(0.6, 0.6, 0.6)
-    
+
     btn:SetBackdrop(Style.Backdrop)
     btn:SetBackdropColor(0, 0, 0, 0)
     btn:SetBackdropBorderColor(0, 0, 0, 0)
-    
+
     function btn:Select()
         fs:SetTextColor(1, 1, 1)
         self:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
@@ -240,7 +240,7 @@ local function CreateModuleButton(parent, text, width, height)
         fs:SetTextColor(0.6, 0.6, 0.6)
         self:SetBackdropColor(0, 0, 0, 0)
     end
-    
+
     btn:SetScript("OnEnter", function(self)
         if fs:GetTextColor() < 1 then
             fs:SetTextColor(0.8, 0.8, 0.8)
@@ -262,21 +262,21 @@ local function CreateModuleContent(parent, moduleName, module)
         parent.currentContent:SetParent(nil)
         parent.currentContent = nil
     end
-    
+
     local content = CreateFrame("Frame", nil, parent)
     content:SetPoint("TOPLEFT", CONTENT_PADDING, -CONTENT_PADDING)
     content:SetPoint("BOTTOMRIGHT", -CONTENT_PADDING, CONTENT_PADDING)
     parent.currentContent = content
-    
+
     local title = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("TOPLEFT", 0, 0)
     title:SetFont(Style.STANDARD_FONT, 18, "OUTLINE")
     title:SetText(moduleName)
     title:SetTextColor(1, 1, 1)
-    
+
     local toggleBtn = CreateStyledButton(content, "", 100, 24)
     toggleBtn:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -15)
-    
+
     local function UpdateToggleText()
         if module.enabled then
             toggleBtn:SetText("ENABLED")
@@ -287,25 +287,25 @@ local function CreateModuleContent(parent, moduleName, module)
         end
     end
     UpdateToggleText()
-    
+
     toggleBtn:SetScript("OnClick", function()
         module.enabled = not module.enabled
         if module.enabled and module.Init then module:Init()
         elseif not module.enabled and module.Disable then module:Disable() end
         UpdateToggleText()
     end)
-    
+
     -- Module-specific UI
     if moduleName == "Death Tracker" then
         local db = whisperDB.deathTracker
         local yStart = -80
-        
+
         local testBtn = CreateStyledButton(content, "Test", 80, 24)
         testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
         testBtn:GetFontString():SetTextColor(1, 1, 1)
         testBtn:SetScript("OnClick", function()
-            if module.ToggleTestMode then 
-                module:ToggleTestMode() 
+            if module.ToggleTestMode then
+                module:ToggleTestMode()
                 if module.isTestMode then
                     testBtn:SetText("End")
                     testBtn:GetFontString():SetTextColor(unpack(COLOR_RED))
@@ -315,51 +315,51 @@ local function CreateModuleContent(parent, moduleName, module)
                 end
             end
         end)
-        
+
         -- Store test button reference in module for later access
         module.testButton = testBtn
-        
+
         -- NEW: Reset Defaults Button
         local resetBtn = CreateStyledButton(content, "Reset Defaults", 140, 24)
         resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
         resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
-        
+
         -- Store references to sliders so we can update them
         local sliderRefs = {}
-        
-        local xSlider = CreateCustomSlider(content, "X-Offset", -100, 100, 1, 
+
+        local xSlider = CreateCustomSlider(content, "X-Offset", -100, 100, 1,
             function() return db.offsetX end,
-            function(val) 
-                db.offsetX = val 
+            function(val)
+                db.offsetX = val
                 if module.UpdateSettings then module:UpdateSettings() end
             end
         )
         xSlider:SetPoint("TOPLEFT", 0, yStart)
         sliderRefs.xSlider = xSlider
-        
-        local ySlider = CreateCustomSlider(content, "Y-Offset", -100, 100, 1, 
+
+        local ySlider = CreateCustomSlider(content, "Y-Offset", -100, 100, 1,
             function() return db.offsetY end,
-            function(val) 
-                db.offsetY = val 
+            function(val)
+                db.offsetY = val
                 if module.UpdateSettings then module:UpdateSettings() end
             end
         )
         ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
         sliderRefs.ySlider = ySlider
-        
-        local limitSlider = CreateCustomSlider(content, "Death Limit", 1, 20, 1, 
+
+        local limitSlider = CreateCustomSlider(content, "Death Limit", 1, 20, 1,
             function() return db.limit end,
-            function(val) 
-                db.limit = val 
+            function(val)
+                db.limit = val
                 if module.UpdateSettings then module:UpdateSettings() end
             end
         )
         limitSlider:SetPoint("TOPLEFT", 0, yStart - 120)
         sliderRefs.limitSlider = limitSlider
-        
+
         local growBtn = CreateStyledButton(content, "", 100, 24)
-        growBtn:SetPoint("TOPLEFT", 0, yStart - 180) 
-        
+        growBtn:SetPoint("TOPLEFT", 0, yStart - 180)
+
         local function UpdateGrowText()
             if db.growUp then
                 growBtn:SetText("Grow Up")
@@ -370,16 +370,16 @@ local function CreateModuleContent(parent, moduleName, module)
             end
         end
         UpdateGrowText()
-        
+
         growBtn:SetScript("OnClick", function()
             db.growUp = not db.growUp
             UpdateGrowText()
             if module.UpdateSettings then module:UpdateSettings() end
         end)
-        
+
         -- Reset Defaults Button Handler
         resetBtn:SetScript("OnClick", function()
-            if module.ResetDefaults then 
+            if module.ResetDefaults then
                 module:ResetDefaults()
                 -- Update all slider visuals
                 if sliderRefs.xSlider and sliderRefs.xSlider.UpdateVisuals then
@@ -395,7 +395,7 @@ local function CreateModuleContent(parent, moduleName, module)
             end
         end)
     else
-        testBtn:Hide()
+        -- No module-specific settings for other modules
         local desc = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         desc:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -20)
         desc:SetWidth(400)
@@ -404,7 +404,7 @@ local function CreateModuleContent(parent, moduleName, module)
         desc:SetTextColor(0.6, 0.6, 0.6)
         desc:SetText("Module-specific settings will appear here in future updates.")
     end
-    
+
     return content
 end
 
@@ -446,15 +446,15 @@ local function CreateConfigFrame()
     configFrame = CreateFrame("Frame", "whisperConfigFrame", UIParent, "BackdropTemplate")
     configFrame:SetSize(CONFIG_WIDTH, CONFIG_HEIGHT)
     configFrame:SetPoint("CENTER")
-    configFrame:SetFrameStrata("FULLSCREEN_DIALOG") 
+    configFrame:SetFrameStrata("FULLSCREEN_DIALOG")
     configFrame:EnableMouse(true)
     configFrame:SetMovable(true)
     configFrame:RegisterForDrag("LeftButton")
     configFrame:SetClampedToScreen(true)
     configFrame:SetAlpha(0)
-    
+
     tinsert(UISpecialFrames, "whisperConfigFrame")
-    
+
     configFrame:SetBackdrop({
         bgFile = "Interface/Buttons/WHITE8X8",
         edgeFile = "Interface/Buttons/WHITE8X8",
@@ -465,7 +465,7 @@ local function CreateConfigFrame()
 
     configFrame:SetScript("OnDragStart", configFrame.StartMoving)
     configFrame:SetScript("OnDragStop", configFrame.StopMovingOrSizing)
-    
+
     -- Add OnHide handler to turn off test mode when frame closes
     configFrame:SetScript("OnHide", function()
         for name, module in pairs(whisper.modules) do
@@ -488,7 +488,7 @@ local function CreateConfigFrame()
     tex:SetSize(22, 22)
     tex:SetPoint("CENTER")
     closeBtn.Texture = tex
-    closeBtn:SetScript("OnClick", function() 
+    closeBtn:SetScript("OnClick", function()
         -- Turn off test mode if active
         for name, module in pairs(whisper.modules) do
             if module.isTestMode and module.ToggleTestMode then
@@ -500,7 +500,7 @@ local function CreateConfigFrame()
                 end
             end
         end
-        FadeOut(configFrame, 0.08) 
+        FadeOut(configFrame, 0.08)
     end)
 
     local sidebar = CreateFrame("Frame", nil, configFrame, "BackdropTemplate")
@@ -509,24 +509,24 @@ local function CreateConfigFrame()
     sidebar:SetWidth(SIDEBAR_WIDTH)
     sidebar:SetBackdrop({bgFile = "Interface/Buttons/WHITE8X8", edgeFile = nil, edgeSize = 0})
     sidebar:SetBackdropColor(0, 0, 0, 0.5)
-    
+
     local sidebarTitle = sidebar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     sidebarTitle:SetPoint("TOP", 0, -15)
     sidebarTitle:SetText("MODULES")
     sidebarTitle:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
-    sidebarTitle:SetTextColor(0.4, 0.4, 0.4) 
+    sidebarTitle:SetTextColor(0.4, 0.4, 0.4)
 
     local contentArea = CreateFrame("Frame", nil, configFrame, "BackdropTemplate")
     contentArea:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 0, 0)
     contentArea:SetPoint("BOTTOMRIGHT", 0, 0)
     contentArea:SetBackdrop({bgFile = nil, edgeFile = nil, edgeSize = 0})
-    
+
     local watermark = contentArea:CreateTexture(nil, "BACKGROUND", nil, -1)
     watermark:SetSize(256, 256)
     watermark:SetPoint("BOTTOMRIGHT", 0, 0)
     watermark:SetTexture("Interface/AddOns/whisper/Media/whisperLogo")
-    watermark:SetAlpha(0.1) 
-    
+    watermark:SetAlpha(0.1)
+
     local yOffset = -40
     local sortedNames = {}
     for name in pairs(whisper.modules) do tinsert(sortedNames, name) end
@@ -545,14 +545,14 @@ local function CreateConfigFrame()
         moduleButtons[name] = btn
         yOffset = yOffset - 32
     end
-    
+
     local reloadBtn = CreateStyledButton(contentArea, "Reload UI", 140, 28)
     reloadBtn:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", -15, 15)
     reloadBtn:SetScript("OnClick", C_UI.Reload)
     reloadBtn.textColor = Style.Colors.Enabled
     local gr, gg, gb = unpack({0, 1, 0.2})
     reloadBtn:GetFontString():SetTextColor(gr, gg, gb)
-    
+
     if sortedNames[1] then moduleButtons[sortedNames[1]]:Click() end
     configFrame:Hide()
 end
@@ -560,14 +560,14 @@ end
 local function CreateLauncherPanel()
     launcherPanel = CreateFrame("Frame", nil, nil)
     launcherPanel.name = "whisper"
-    
+
     local headerIcon = launcherPanel:CreateTexture(nil, "ARTWORK")
-    headerIcon:SetSize(64, 64) 
+    headerIcon:SetSize(64, 64)
     headerIcon:SetPoint("TOPLEFT", 10, -10)
     headerIcon:SetTexture("Interface/AddOns/whisper/Media/whisperLogo")
 
     local title = launcherPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 90, -25) 
+    title:SetPoint("TOPLEFT", 90, -25)
     title:SetText(Style.Colors.Addon .. "whisper|r")
     title:SetFont(Style.STANDARD_FONT, 16, "OUTLINE")
 
@@ -575,7 +575,7 @@ local function CreateLauncherPanel()
     desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
     desc:SetText("whisper has its own standalone configuration window.")
     desc:SetFont(Style.STANDARD_FONT, 13, "OUTLINE")
-    
+
     local openBtn = CreateStyledButton(launcherPanel, "Open Config", 160, 28)
     openBtn:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -20)
     openBtn:SetScript("OnClick", function() whisper:OpenSettings() end)
@@ -596,7 +596,7 @@ function whisper:OpenSettings(forceShow)
         FadeIn(configFrame, 0.1)
         configFrame:Raise()
     else
-        if configFrame:IsShown() then 
+        if configFrame:IsShown() then
             -- Turn off test mode if active when closing
             for name, module in pairs(whisper.modules) do
                 if module.isTestMode and module.ToggleTestMode then
