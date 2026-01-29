@@ -1,9 +1,0 @@
-package-as: whisper
-
-enable-nolib-creation: no
-
-ignore:
-  - .git
-  - .gitignore
-  - .idea
-  - workspace.xml
