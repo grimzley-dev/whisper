@@ -1,7 +1,7 @@
 ## Interface: 120000
 ## Title: whisper
 ## Notes: whisper Guild Utility Addon
-## Author: Grimz
+## Author: Grimzley
 ## Version: 0.1
 ## SavedVariables: whisperDB
 ## IconTexture: Interface\AddOns\whisper\Media\whisperLogo
@@ -15,4 +15,3 @@ whisper_Config.lua
 Modules/whisper_Mail.lua
 Modules/whisper_QuestCleaner.lua
 Modules/whisper_DeathTracker.lua
-
