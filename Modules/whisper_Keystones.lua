@@ -4,9 +4,6 @@ Keystones.enabled = true
 Keystones.isTestMode = false
 whisper:RegisterModule("Keystones", Keystones)
 
--- =========================================================================
--- CONSTANTS & LOCALIZATION
--- =========================================================================
 local C_ChatInfo = C_ChatInfo
 local C_ChallengeMode = C_ChallengeMode
 local C_MythicPlus = C_MythicPlus
@@ -43,9 +40,6 @@ local WIDTH_NORMAL = 210
 local WIDTH_COMPACT = 110
 local COMM_PREFIX = "WHISPER_KEYS"
 
--- =========================================================================
--- DUNGEON DATABASE
--- =========================================================================
 local DUNGEON_DB = {
     [499] = { abbr = "PSF",   port = 445444 },
     [500] = { abbr = "ROOK",  port = 445443 },
@@ -78,7 +72,6 @@ local DUNGEON_DB = {
     [456] = { abbr = "TOT", port = 424142 }, [507] = { abbr = "GB",  port = 445424 },
 }
 
--- Module State
 local KeystoneManager = { partyData = {} }
 local Comms = {}
 local Interface = { rows = {} }
@@ -87,10 +80,6 @@ local pendingUpdate = false
 local isInActiveChallenge = false
 local lastBagScan = 0
 local lastCooldownRefresh = 0
-
--- =========================================================================
--- LOGIC: KEYSTONE MANAGER
--- =========================================================================
 
 function KeystoneManager:GetMapInfo(mapID)
     local info = DUNGEON_DB[mapID]
@@ -109,9 +98,13 @@ function KeystoneManager:GetTeleportID(mapID)
     if not info or not info.port then return nil end
     if type(info.port) == "table" then
         local faction = UnitFactionGroup("player")
-        if faction == "Alliance" then return info.port[1]
-        elseif faction == "Horde" then return info.port[2]
-        else return info.port[1] end
+        if faction == "Alliance" then
+            return info.port[1]
+        elseif faction == "Horde" then
+            return info.port[2]
+        else
+            return info.port[1]
+        end
     end
     return info.port
 end
@@ -119,7 +112,9 @@ end
 function KeystoneManager:UpdateEntry(sender, mapID, level)
     if not sender or not mapID or not level then return end
     local fullName = sender
-    if not string.find(fullName, "-") then fullName = fullName .. "-" .. GetRealmName() end
+    if not string.find(fullName, "-") then
+        fullName = fullName .. "-" .. GetRealmName()
+    end
     local _, classFilename = UnitClass(sender)
     local classColor = C_ClassColor.GetClassColor(classFilename or "PRIEST")
     self.partyData[fullName] = {
@@ -171,10 +166,6 @@ function KeystoneManager:CleanParty()
     Interface:Refresh()
 end
 
--- =========================================================================
--- LOGIC: COMMUNICATIONS
--- =========================================================================
-
 function Comms:Broadcast(mapID, level)
     if not IsInGroup() then return end
     local payload = format("WHISPER:KEY:%d:%d", mapID, level)
@@ -204,10 +195,6 @@ function Comms:OnMessage(_, prefix, msg, _, sender)
     end
 end
 
--- =========================================================================
--- LOGIC: SLASH COMMAND HOOK
--- =========================================================================
-
 local function HookExternalKeys()
     for k, v in pairs(_G) do
         if type(k) == "string" and k:match("^SLASH_") then
@@ -224,10 +211,6 @@ local function HookExternalKeys()
         end
     end
 end
-
--- =========================================================================
--- LOGIC: TEST MODE & DEFAULTS
--- =========================================================================
 
 function Keystones:ToggleTestMode()
     self.isTestMode = not self.isTestMode
@@ -272,8 +255,7 @@ end
 
 function Keystones:ResetDefaults()
     local db = whisperDB.keystones
-    local sw = UIParent:GetWidth()
-    local sh = UIParent:GetHeight()
+    local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
     db.compactMode = false
     db.growUp = false
     db.useAbbreviation = false
@@ -282,10 +264,6 @@ function Keystones:ResetDefaults()
     Interface:UpdatePosition()
     Interface:Refresh()
 end
-
--- =========================================================================
--- LOGIC: INTERFACE (UI)
--- =========================================================================
 
 local function CreateKeystoneRow(parent, index)
     local row = CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -332,36 +310,27 @@ local function CreateKeystoneRow(parent, index)
     row.dungeon:SetJustifyH("LEFT")
     row.dungeon:SetWordWrap(false)
 
-    -- LAYER 1: SECURE BUTTON (handles spell casting - teleports)
-    local secure = CreateFrame("Button", nil, row, "SecureActionButtonTemplate")
+    local buttonName = "WhisperKeystoneButton" .. index
+    local secure = CreateFrame("Button", buttonName, row, "InsecureActionButtonTemplate")
     secure:SetAllPoints(row)
-    secure:RegisterForClicks("LeftButtonUp")
-    secure:EnableMouse(true)
+    secure:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "RightButtonUp")
+    secure:SetAttribute("type", "spell")
+    secure:SetAttribute("spell", nil)
+    secure:SetAttribute("type2", nil)
 
-    -- LAYER 2: REGULAR BUTTON (handles right-click refresh only)
-    local overlay = CreateFrame("Button", nil, row)
-    overlay:SetAllPoints(row)
-    overlay:SetFrameLevel(secure:GetFrameLevel() + 1)
-    overlay:RegisterForClicks("RightButtonUp")
-    overlay:EnableMouse(true)
-
-    -- OVERLAY BUTTON HANDLER (intercepts right clicks only)
-    overlay:SetScript("OnClick", function(self, button)
-        -- RIGHT CLICK: Refresh
+    secure:HookScript("PostClick", function(self, button)
         if button == "RightButton" then
             KeystoneManager:ScanOpenRaid()
             Interface:Refresh()
         end
     end)
 
-    -- TOOLTIP HANDLERS (on overlay so they always work)
-    overlay:SetScript("OnEnter", function(self)
+    secure:SetScript("OnEnter", function(self)
         if self.spellID then
             GameTooltip:SetOwner(self, "ANCHOR_NONE")
             GameTooltip:SetPoint("TOPLEFT", self, "TOPRIGHT", 2, 0)
             GameTooltip:SetSpellByID(self.spellID)
             GameTooltip:Show()
-
             row:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
             if self.info and self.info.classColor then
                 local c = self.info.classColor
@@ -372,14 +341,13 @@ local function CreateKeystoneRow(parent, index)
         end
     end)
 
-    overlay:SetScript("OnLeave", function(self)
+    secure:SetScript("OnLeave", function()
         GameTooltip:Hide()
         row:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
         row.overlayBorder:SetBackdropBorderColor(0, 0, 0, 0)
     end)
 
     row.secure = secure
-    row.overlay = overlay
     return row
 end
 
@@ -396,7 +364,6 @@ function Interface:Create()
     local anchor = CreateFrame("Frame", nil, f, "BackdropTemplate")
     anchor:SetSize(WIDTH_NORMAL - 20, ANCHOR_HEIGHT)
     anchor:SetPoint("BOTTOM", f, "TOP", 0, 1)
-
     anchor:SetBackdrop({
         bgFile = BAR_TEXTURE,
         edgeFile = "Interface/Buttons/WHITE8X8",
@@ -405,7 +372,6 @@ function Interface:Create()
     })
     anchor:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
     anchor:SetBackdropBorderColor(0, 0, 0, 1)
-
     anchor:EnableMouse(false)
     anchor:SetMovable(true)
     anchor:RegisterForDrag("LeftButton")
@@ -417,15 +383,14 @@ function Interface:Create()
     anchorText:SetText("ANCHOR")
     anchorText:SetTextColor(1, 1, 1)
 
-    anchor:SetScript("OnDragStart", function(self) f:StartMoving() end)
-    anchor:SetScript("OnDragStop", function(self)
+    anchor:SetScript("OnDragStart", function() f:StartMoving() end)
+    anchor:SetScript("OnDragStop", function()
         f:StopMovingOrSizing()
         local growUp = whisperDB.keystones.growUp
         local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
         if sw > 0 and sh > 0 then
             local left = f:GetLeft()
-            local y
-            if growUp then y = f:GetBottom() else y = f:GetTop() end
+            local y = growUp and f:GetBottom() or f:GetTop()
             whisperDB.keystones.offsetX = left - (sw / 2)
             whisperDB.keystones.offsetY = y - (sh / 2)
             Interface:UpdatePosition()
@@ -501,7 +466,9 @@ function Interface:Refresh()
     local numDisplayed = 0
     for i, data in ipairs(list) do
         if i <= 5 then
-            if not self.rows[i] then self.rows[i] = CreateKeystoneRow(self.container, i) end
+            if not self.rows[i] then
+                self.rows[i] = CreateKeystoneRow(self.container, i)
+            end
             local row = self.rows[i]
             row:Show()
             row:SetWidth(currentRowWidth)
@@ -515,9 +482,8 @@ function Interface:Refresh()
                 row:SetPoint("TOPLEFT", 0, yOffset)
             end
 
-            -- Store data in BOTH buttons
             row.secure.info = data
-            row.overlay.info = data
+            row.secure.spellID = data.portID
             row.icon:SetTexture(data.texture)
 
             if isCompact then
@@ -548,11 +514,14 @@ function Interface:Refresh()
                 row.level:SetPoint("RIGHT", -8, 0)
                 row.level:SetText("+" .. data.level)
 
-                if data.level >= 20 then row.level:SetTextColor(1, 0.5, 0)
-                elseif data.level >= 10 then row.level:SetTextColor(0.64, 0.2, 0.93)
-                else row.level:SetTextColor(1, 1, 1) end
+                if data.level >= 20 then
+                    row.level:SetTextColor(1, 0.5, 0)
+                elseif data.level >= 10 then
+                    row.level:SetTextColor(0.64, 0.2, 0.93)
+                else
+                    row.level:SetTextColor(1, 1, 1)
+                end
 
-                -- FIXED ANCHORS
                 row.name:ClearAllPoints()
                 row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, -5)
 
@@ -561,13 +530,15 @@ function Interface:Refresh()
                 row.dungeon:SetPoint("RIGHT", row.level, "LEFT", -5, 0)
             end
 
-            if data.classColor then row.name:SetTextColor(data.classColor.r, data.classColor.g, data.classColor.b)
-            else row.name:SetTextColor(1, 1, 1) end
+            if data.classColor then
+                row.name:SetTextColor(data.classColor.r, data.classColor.g, data.classColor.b)
+            else
+                row.name:SetTextColor(1, 1, 1)
+            end
 
             if data.portID and IsSpellKnown(data.portID) then
-                row.secure:SetAttribute("type1", "spell")
-                row.secure:SetAttribute("spell1", data.portID)
-                row.overlay.spellID = data.portID
+                row.secure:SetAttribute("spell", data.portID)
+                row.secure.spellID = data.portID
 
                 local info = C_Spell.GetSpellCooldown(data.portID)
                 local start = info and info.startTime or 0
@@ -582,8 +553,8 @@ function Interface:Refresh()
                     row.icon:SetVertexColor(1, 1, 1)
                 end
             else
-                row.secure:SetAttribute("type1", nil)
-                row.overlay.spellID = nil
+                row.secure:SetAttribute("spell", nil)
+                row.secure.spellID = nil
                 row.icon:SetDesaturated(false)
                 row.icon:SetVertexColor(1, 1, 1)
             end
@@ -628,16 +599,11 @@ function Interface:UpdatePosition()
     if not Keystones.enabled then self.container:Hide() end
 end
 
--- =========================================================================
--- INITIALIZATION
--- =========================================================================
-
 function Keystones:Init()
     if not whisperDB.keystones then whisperDB.keystones = {} end
     local db = whisperDB.keystones
     local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
 
-    -- Database version check
     local DB_VERSION = 1
     if not db.version or db.version < DB_VERSION then
         db.version = DB_VERSION
@@ -684,7 +650,6 @@ function Keystones:Init()
         if event == "CHAT_MSG_ADDON" then
             Comms:OnMessage(...)
         elseif event == "BAG_UPDATE" then
-            -- Throttle BAG_UPDATE to max once per second
             local now = GetTime()
             if now - lastBagScan > 1 then
                 lastBagScan = now
@@ -710,7 +675,6 @@ function Keystones:Init()
                 Interface:Refresh()
             end
         elseif event == "SPELL_UPDATE_COOLDOWN" then
-            -- Throttle cooldown refreshes to max twice per second
             local now = GetTime()
             if now - lastCooldownRefresh > 0.5 then
                 lastCooldownRefresh = now
@@ -730,7 +694,6 @@ end
 function Keystones:Disable()
     self.enabled = false
     if Interface.container then Interface.container:Hide() end
-    -- Save current party data back to cache for persistence
     if whisperDB.keystones then
         whisperDB.keystones.partyCache = KeystoneManager.partyData
     end
