@@ -33,18 +33,10 @@ local DEFAULTS = {
     growUp = true
 }
 
--- OPTIMIZATION: Valid unit lookup table (faster than string pattern matching)
-local validUnits = {
-    ["player"] = true,
-}
--- Pre-populate party units
-for i = 1, 4 do
-    validUnits["party" .. i] = true
-end
--- Pre-populate raid units
-for i = 1, 40 do
-    validUnits["raid" .. i] = true
-end
+-- Valid unit lookup table
+local validUnits = { ["player"] = true }
+for i = 1, 4 do validUnits["party" .. i] = true end
+for i = 1, 40 do validUnits["raid" .. i] = true end
 
 -- State
 local messageFrame
@@ -61,7 +53,6 @@ local function ResetSpamCounter()
 end
 
 local function AnnounceDeath(unit, guid)
-    -- DB UPDATE: deathTracker
     local limit = whisperDB.deathTracker.limit or DEFAULTS.limit
     if recentDeaths >= limit then return end
 
@@ -96,7 +87,7 @@ end
 -- Test Mode Logic
 -- =========================
 function Deaths:ToggleTestMode()
-    if not messageFrame then self:Init() end
+    if not messageFrame then return end
 
     self.isTestMode = not self.isTestMode
 
@@ -115,7 +106,6 @@ function Deaths:ToggleTestMode()
             colorStr = "|c" .. color:GenerateHexColor()
         end
 
-        -- DB UPDATE: deathTracker
         local limit = whisperDB.deathTracker.limit or DEFAULTS.limit
         for i = 1, limit do
             messageFrame:AddMessage(format("%s%s|r died (%d)", colorStr, name, i))
@@ -133,7 +123,6 @@ end
 function Deaths:UpdateSettings()
     if not messageFrame then return end
 
-    -- DB UPDATE: deathTracker
     local db = whisperDB.deathTracker
     messageFrame:ClearAllPoints()
 
@@ -143,7 +132,10 @@ function Deaths:UpdateSettings()
     messageFrame:SetSize(600, height)
     messageFrame:SetMaxLines(limit)
 
-    local screenWidth, screenHeight = UIParent:GetSize()
+    -- FIX: Use UIParent Dimensions (Scaled) instead of Screen (Physical)
+    local screenWidth = UIParent:GetWidth()
+    local screenHeight = UIParent:GetHeight()
+
     local xPos = (db.offsetX / 100) * screenWidth
     local yPos = (db.offsetY / 100) * screenHeight
 
@@ -167,10 +159,11 @@ end
 -- Reset to Defaults
 -- =========================
 function Deaths:ResetDefaults()
-    whisperDB.deathTracker.limit = DEFAULTS.limit
-    whisperDB.deathTracker.offsetX = DEFAULTS.offsetX
-    whisperDB.deathTracker.offsetY = DEFAULTS.offsetY
-    whisperDB.deathTracker.growUp = DEFAULTS.growUp
+    local db = whisperDB.deathTracker
+    db.limit = DEFAULTS.limit
+    db.offsetX = DEFAULTS.offsetX
+    db.offsetY = DEFAULTS.offsetY
+    db.growUp = DEFAULTS.growUp
 
     self:UpdateSettings()
 end
@@ -187,9 +180,7 @@ eventFrame:SetScript("OnEvent", function(self, event, unit)
     if not Deaths.enabled or Deaths.isTestMode then return end
 
     if event == "UNIT_FLAGS" then
-        -- OPTIMIZATION: Table lookup instead of string pattern matching
         if validUnits[unit] then
-            -- OPTIMIZATION: Cache UnitGUID call - only call once
             local guid = UnitGUID(unit)
             if not guid then return end
 
@@ -217,34 +208,25 @@ end)
 -- =========================
 function Deaths:Init()
     -- Initialize DB Defaults if missing
-    whisperDB.deathTracker = whisperDB.deathTracker or {}
-    
-    -- Apply defaults for any missing values
-    if whisperDB.deathTracker.limit == nil then
-        whisperDB.deathTracker.limit = DEFAULTS.limit
-    end
-    if whisperDB.deathTracker.offsetX == nil then
-        whisperDB.deathTracker.offsetX = DEFAULTS.offsetX
-    end
-    if whisperDB.deathTracker.offsetY == nil then
-        whisperDB.deathTracker.offsetY = DEFAULTS.offsetY
-    end
-    if whisperDB.deathTracker.growUp == nil then
-        whisperDB.deathTracker.growUp = DEFAULTS.growUp
-    end
-    
+    if not whisperDB.deathTracker then whisperDB.deathTracker = {} end
+    local db = whisperDB.deathTracker
+
+    if db.limit == nil then db.limit = DEFAULTS.limit end
+    if db.offsetX == nil then db.offsetX = DEFAULTS.offsetX end
+    if db.offsetY == nil then db.offsetY = DEFAULTS.offsetY end
+    if db.growUp == nil then db.growUp = DEFAULTS.growUp end
+
     if not messageFrame then
         messageFrame = CreateFrame("ScrollingMessageFrame", nil, UIParent)
-        messageFrame:SetFrameStrata("DIALOG") 
+        messageFrame:SetFrameStrata("DIALOG")
         messageFrame:SetFont(STANDARD_FONT, FONT_SIZE, "OUTLINE")
         messageFrame:SetJustifyH("CENTER")
         messageFrame:SetFadeDuration(FADE_TIME)
         messageFrame:SetTimeVisible(HOLD_TIME)
         messageFrame:SetSpacing(SPACING)
-        
-        self:UpdateSettings()
     end
-    
+
+    self:UpdateSettings()
     Deaths:CheckZone()
     if messageFrame then messageFrame:Show() end
 end
@@ -258,3 +240,11 @@ function Deaths:CheckZone()
     local inInstance, instanceType = IsInInstance()
     self.isActive = inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario")
 end
+
+-- Wait for PLAYER_LOGIN to ensure UIParent dimensions are finalized
+local loader = CreateFrame("Frame")
+loader:RegisterEvent("PLAYER_LOGIN")
+loader:SetScript("OnEvent", function(self, event)
+    Deaths:Init()
+    self:UnregisterEvent("PLAYER_LOGIN")
+end)

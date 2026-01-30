@@ -2,7 +2,7 @@
 ## Title: whisper
 ## Notes: whisper Guild Utility Addon
 ## Author: Grimzley
-## Version: 0.2.1
+## Version: 0.3
 ## SavedVariables: whisperDB
 ## IconTexture: Interface\AddOns\whisper\Media\whisperLogo
 ## Category: whisper
@@ -13,6 +13,7 @@ whisper_Config.lua
 
 ## Modules
 Modules/whisper_Mail.lua
-Modules/whisper_QuestCleaner.lua
 Modules/whisper_DeathTracker.lua
+Modules/whisper_Keystones.lua
 Modules/whisper_AutoQueue.lua
+Modules/whisper_QuestCleaner.lua
