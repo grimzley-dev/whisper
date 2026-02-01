@@ -86,7 +86,7 @@ function KeystoneManager:GetMapInfo(mapID)
     local name, _, _, texture = C_ChallengeMode.GetMapUIInfo(mapID)
     if not name then name = format("Unknown Dungeon (%d)", mapID) end
     local displayName = name
-    if (whisperDB.keystones.compactMode or whisperDB.keystones.useAbbreviation) and info then
+    if (whisperDB.keystones.compactMode or whisperDB.keystones.useAbbreviation or whisperDB.keystones.transparentMode) and info then
         displayName = info.abbr
     end
     if not texture then texture = 525134 end
@@ -275,8 +275,15 @@ local function CreateKeystoneRow(parent, index)
         edgeSize = 1,
         insets = { left = 0, right = 0, top = 0, bottom = 0 }
     })
-    row:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
-    row:SetBackdropBorderColor(0, 0, 0, 1)
+
+    local isTransparent = whisperDB.keystones.transparentMode
+    if isTransparent then
+        row:SetBackdropColor(0, 0, 0, 0)
+        row:SetBackdropBorderColor(0, 0, 0, 0)
+    else
+        row:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
+        row:SetBackdropBorderColor(0, 0, 0, 1)
+    end
 
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(ROW_HEIGHT, ROW_HEIGHT)
@@ -286,7 +293,11 @@ local function CreateKeystoneRow(parent, index)
     local iconBorder = CreateFrame("Frame", nil, row, "BackdropTemplate")
     iconBorder:SetAllPoints(row.icon)
     iconBorder:SetBackdrop({edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1, bgFile = nil})
-    iconBorder:SetBackdropBorderColor(0, 0, 0, 1)
+    if isTransparent then
+        iconBorder:SetBackdropBorderColor(0, 0, 0, 0)
+    else
+        iconBorder:SetBackdropBorderColor(0, 0, 0, 1)
+    end
     iconBorder:SetFrameLevel(row:GetFrameLevel() + 5)
 
     local overlayBorder = CreateFrame("Frame", nil, row, "BackdropTemplate")
@@ -331,19 +342,28 @@ local function CreateKeystoneRow(parent, index)
             GameTooltip:SetPoint("TOPLEFT", self, "TOPRIGHT", 2, 0)
             GameTooltip:SetSpellByID(self.spellID)
             GameTooltip:Show()
-            row:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
-            if self.info and self.info.classColor then
-                local c = self.info.classColor
-                row.overlayBorder:SetBackdropBorderColor(c.r, c.g, c.b, 1)
-            else
-                row.overlayBorder:SetBackdropBorderColor(1, 1, 1, 1)
+
+            local isTransparent = whisperDB.keystones.transparentMode
+            if not isTransparent then
+                row:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
+                if self.info and self.info.classColor then
+                    local c = self.info.classColor
+                    row.overlayBorder:SetBackdropBorderColor(c.r, c.g, c.b, 1)
+                else
+                    row.overlayBorder:SetBackdropBorderColor(1, 1, 1, 1)
+                end
             end
         end
     end)
 
     secure:SetScript("OnLeave", function()
         GameTooltip:Hide()
-        row:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
+        local isTransparent = whisperDB.keystones.transparentMode
+        if isTransparent then
+            row:SetBackdropColor(0, 0, 0, 0)
+        else
+            row:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
+        end
         row.overlayBorder:SetBackdropBorderColor(0, 0, 0, 0)
     end)
 
@@ -370,8 +390,15 @@ function Interface:Create()
         edgeSize = 1,
         insets = { left = 0, right = 0, top = 0, bottom = 0 }
     })
-    anchor:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
-    anchor:SetBackdropBorderColor(0, 0, 0, 1)
+
+    local isTransparent = whisperDB.keystones.transparentMode
+    if isTransparent then
+        anchor:SetBackdropColor(0, 0, 0, 0)
+        anchor:SetBackdropBorderColor(0, 0, 0, 0)
+    else
+        anchor:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
+        anchor:SetBackdropBorderColor(0, 0, 0, 1)
+    end
     anchor:EnableMouse(false)
     anchor:SetMovable(true)
     anchor:RegisterForDrag("LeftButton")
@@ -411,7 +438,14 @@ function Interface:Refresh()
     if not self.container then self:Create() end
 
     if InCombatLockdown() then
+        self.container:Hide()
         pendingUpdate = true
+        return
+    end
+
+    local _, instanceType = IsInInstance()
+    if instanceType == "raid" then
+        self.container:Hide()
         return
     end
 
@@ -420,7 +454,7 @@ function Interface:Refresh()
         return
     end
 
-    local isCompact = whisperDB.keystones.compactMode
+    local isCompact = whisperDB.keystones.compactMode or whisperDB.keystones.transparentMode
     local growUp = whisperDB.keystones.growUp
     local currentRowWidth = isCompact and WIDTH_COMPACT or WIDTH_NORMAL
 
@@ -464,6 +498,8 @@ function Interface:Refresh()
     end)
 
     local numDisplayed = 0
+    local isTransparent = whisperDB.keystones.transparentMode
+
     for i, data in ipairs(list) do
         if i <= 5 then
             if not self.rows[i] then
@@ -473,6 +509,14 @@ function Interface:Refresh()
             row:Show()
             row:SetWidth(currentRowWidth)
             row:ClearAllPoints()
+
+            if isTransparent then
+                row:SetBackdropColor(0, 0, 0, 0)
+                row:SetBackdropBorderColor(0, 0, 0, 0)
+            else
+                row:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
+                row:SetBackdropBorderColor(0, 0, 0, 1)
+            end
 
             if growUp then
                 local yOffset = ANCHOR_HEIGHT + ROW_SPACING + ((i - 1) * (ROW_HEIGHT + ROW_SPACING))
@@ -567,14 +611,6 @@ function Interface:Refresh()
         if self.rows[i] then self.rows[i]:Hide() end
     end
 
-    if not Keystones.isTestMode and whisperDB.keystones.hideInInstance then
-        local _, instanceType = IsInInstance()
-        if instanceType == "party" or instanceType == "raid" or instanceType == "pvp" then
-            self.container:Hide()
-            return
-        end
-    end
-
     if numDisplayed > 0 then
         self.container:Show()
         local totalHeight = ANCHOR_HEIGHT + (numDisplayed * (ROW_HEIGHT + ROW_SPACING))
@@ -615,7 +651,7 @@ function Keystones:Init()
     if db.useAbbreviation == nil then db.useAbbreviation = false end
     if db.compactMode == nil then db.compactMode = false end
     if db.growUp == nil then db.growUp = false end
-    if db.hideInInstance == nil then db.hideInInstance = false end
+    if db.transparentMode == nil then db.transparentMode = false end
     if db.offsetX == nil then db.offsetX = -(sw * 0.499) end
     if db.offsetY == nil then db.offsetY = (sh * 0.08) end
 

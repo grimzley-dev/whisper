@@ -464,14 +464,17 @@ local function CreateModuleContent(parent, moduleName, module)
             )
             ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
 
-            -- Toggle: Compact Mode
-            local compactBtn = CreateStyledButton(content, "", 120, 28)
+            -- Toggle: Style (cycles through Default > Compact > Transparent)
+            local compactBtn = CreateStyledButton(content, "", 140, 28)
             compactBtn:SetPoint("TOPLEFT", 0, yStart - 120)
 
             local function UpdateCompactText()
-                if db.compactMode then
+                if db.transparentMode then
+                    compactBtn:SetText("Style: Transparent")
+                    compactBtn:GetFontString():SetTextColor(unpack(COLOR_CYAN))
+                elseif db.compactMode then
                     compactBtn:SetText("Style: Compact")
-                    compactBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
+                    compactBtn:GetFontString():SetTextColor(1, 0.4, 0.8)
                 else
                     compactBtn:SetText("Style: Default")
                     compactBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
@@ -480,14 +483,23 @@ local function CreateModuleContent(parent, moduleName, module)
             UpdateCompactText()
 
             compactBtn:SetScript("OnClick", function()
-                db.compactMode = not db.compactMode
+                if not db.compactMode and not db.transparentMode then
+                    db.compactMode = true
+                    db.transparentMode = false
+                elseif db.compactMode and not db.transparentMode then
+                    db.compactMode = false
+                    db.transparentMode = true
+                else
+                    db.compactMode = false
+                    db.transparentMode = false
+                end
                 UpdateCompactText()
                 if module.UpdateSettings then module:UpdateSettings() end
             end)
 
             -- Toggle: Grow Up/Down
             local growBtn = CreateStyledButton(content, "", 120, 28)
-            growBtn:SetPoint("TOPLEFT", compactBtn, "TOPRIGHT", 10, 0) -- Gap maintained at 10
+            growBtn:SetPoint("TOPLEFT", compactBtn, "TOPRIGHT", 10, 0)
 
             local function UpdateGrowText()
                 if db.growUp then
@@ -536,19 +548,19 @@ local function CreateModuleContent(parent, moduleName, module)
                 name = "Auto Queue",
                 moduleName = "Auto Queue",
                 description = "Auto-accepts LFG role checks.",
-                instantToggle = true  -- Can toggle without reload
+                instantToggle = true
             },
             {
                 name = "Quest Cleaner",
                 moduleName = "Quest Cleaner",
                 description = "Automatically untracks hidden quests.",
-                instantToggle = false  -- Requires reload
+                instantToggle = false
             },
             {
                 name = "Mail",
                 moduleName = "Mail",
                 description = "Streamlines common mailbox actions.",
-                instantToggle = false  -- Requires reload
+                instantToggle = false
             },
         }
 
@@ -573,7 +585,6 @@ local function CreateModuleContent(parent, moduleName, module)
                     utilName:SetTextColor(1, 1, 1)
 
                     -- Toggle button (right side, vertically centered between name and description)
-                    -- Name + description span ~40px total, button is 24px, center at ~24px down
                     local utilToggle = CreateStyledButton(content, "", 100, 24)
                     utilToggle:SetPoint("TOPRIGHT", content, "TOPRIGHT", -10, yPos - 24)
 
@@ -590,7 +601,6 @@ local function CreateModuleContent(parent, moduleName, module)
 
                     utilToggle:SetScript("OnClick", function()
                         if util.instantToggle then
-                            -- Instant toggle (like Auto Queue)
                             utilModule.enabled = not utilModule.enabled
                             whisperDB.modules[util.moduleName] = utilModule.enabled
                             if utilModule.enabled and utilModule.Init then
@@ -599,7 +609,6 @@ local function CreateModuleContent(parent, moduleName, module)
                                 utilModule:Disable()
                             end
                         else
-                            -- Requires reload (like Quest Cleaner)
                             utilModule.enabled = not utilModule.enabled
                             whisperDB.modules[util.moduleName] = utilModule.enabled
                         end
@@ -626,7 +635,7 @@ local function CreateModuleContent(parent, moduleName, module)
                         separator:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos + 6)
                         separator:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yPos + 6)
 
-                        yPos = yPos - 15  -- Gap between separator and next utility name
+                        yPos = yPos - 15
                     end
                 end
             end
