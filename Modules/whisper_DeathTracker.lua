@@ -14,8 +14,10 @@ local GetPlayerInfoByGUID = GetPlayerInfoByGUID
 local C_ClassColor = C_ClassColor
 local format = string.format
 local strsplit = strsplit
+local strmatch = string.match -- Optimization for pattern matching
 local C_Timer = C_Timer
 local UnitClass = UnitClass
+local tostring = tostring
 
 -- Constants
 local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
@@ -32,11 +34,6 @@ local DEFAULTS = {
     offsetY = 10,
     growUp = true
 }
-
--- Valid unit lookup table
-local validUnits = { ["player"] = true }
-for i = 1, 4 do validUnits["party" .. i] = true end
-for i = 1, 40 do validUnits["raid" .. i] = true end
 
 -- State
 local messageFrame
@@ -132,7 +129,6 @@ function Deaths:UpdateSettings()
     messageFrame:SetSize(600, height)
     messageFrame:SetMaxLines(limit)
 
-    -- FIX: Use UIParent Dimensions (Scaled) instead of Screen (Physical)
     local screenWidth = UIParent:GetWidth()
     local screenHeight = UIParent:GetHeight()
 
@@ -180,7 +176,16 @@ eventFrame:SetScript("OnEvent", function(self, event, unit)
     if not Deaths.enabled or Deaths.isTestMode then return end
 
     if event == "UNIT_FLAGS" then
-        if validUnits[unit] then
+        if not unit then return end
+        
+        -- CRITICAL CRASH FIX:
+        -- Replaced table lookup 'validUnits[unit]' with String Pattern Matching.
+        -- This avoids using the restricted 'unit' variable as a table key,
+        -- which is what caused the "table index is secret" error.
+        local u = tostring(unit)
+        local isValid = (u == "player") or strmatch(u, "^raid%d+$") or strmatch(u, "^party%d+$")
+
+        if isValid then
             local guid = UnitGUID(unit)
             if not guid then return end
 
@@ -207,7 +212,6 @@ end)
 -- Initialization
 -- =========================
 function Deaths:Init()
-    -- Initialize DB Defaults if missing
     if not whisperDB.deathTracker then whisperDB.deathTracker = {} end
     local db = whisperDB.deathTracker
 
@@ -241,7 +245,6 @@ function Deaths:CheckZone()
     self.isActive = inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario")
 end
 
--- Wait for PLAYER_LOGIN to ensure UIParent dimensions are finalized
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event)
