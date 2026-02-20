@@ -157,16 +157,18 @@ local function FormatCurrency(copper)
 end
 
 function Mail:Init()
-    eventFrame = CreateFrame("Frame")
+    if not eventFrame then
+        eventFrame = CreateFrame("Frame")
+        eventFrame:SetScript("OnEvent", function(_, event, ...)
+            if event == "PLAYER_MONEY" then
+                Mail:OnPlayerMoney()
+            elseif event == "MAIL_FAILED" then
+                Mail:OnMailFailed()
+            end
+        end)
+    end
     eventFrame:RegisterEvent("PLAYER_MONEY")
     eventFrame:RegisterEvent("MAIL_FAILED")
-    eventFrame:SetScript("OnEvent", function(_, event, ...)
-        if event == "PLAYER_MONEY" then
-            Mail:OnPlayerMoney()
-        elseif event == "MAIL_FAILED" then
-            Mail:OnMailFailed()
-        end
-    end)
 end
 
 function Mail:Disable()
@@ -174,7 +176,6 @@ function Mail:Disable()
     if panel then panel:Hide() end
     if eventFrame then
         eventFrame:UnregisterAllEvents()
-        eventFrame:SetScript("OnEvent", nil)
     end
     if statusTimer then statusTimer:Cancel(); statusTimer = nil end
     if resultStatusTimer then resultStatusTimer:Cancel(); resultStatusTimer = nil end
@@ -194,9 +195,6 @@ function Mail:ResetPanel()
     local p = panel
     panel = nil
 
-    -- FIXED: Check visibility before animating
-    -- If the parent frame (Log) closed, this frame is already effectively hidden.
-    -- We must Hide() it immediately to prevent it from reappearing ("Zombie Frame") when Log reopens.
     if p:IsVisible() then
         FadeOut(p, 0.1)
     else
@@ -257,7 +255,6 @@ function Mail:TogglePanel(anchorFrame)
     Mail:CreateControlButtons(panel)
     Mail:CreateProgressBar(panel)
 
-    -- Animate new panel in
     FadeIn(panel, 0.1)
 end
 
@@ -705,9 +702,8 @@ function Mail:SendCurrentMail()
     self._sending = true
     Mail:SetStatus(HEX_GREY .. "Sending mail to " .. entry.target .. "|r")
 
-    -- RECORD STATE BEFORE ACTION
     self.moneyBefore = GetMoney()
-    self.expectedCost = entry.money + 30 -- Amount + 30c postage
+    self.expectedCost = entry.money + 30
 
     ClearSendMail()
     SetSendMailMoney(entry.money)
@@ -719,7 +715,6 @@ function Mail:SendCurrentMail()
     end
 end
 
--- NEW: Triggered by PLAYER_MONEY
 function Mail:OnPlayerMoney()
     if not self._sending then return end
 
@@ -727,15 +722,12 @@ function Mail:OnPlayerMoney()
     local spent = self.moneyBefore - currentMoney
     local expected = self.expectedCost
 
-    -- Verify exact transaction cost
     if spent == expected then
         self._sending = false
         if self._queue[self._index] then self._queue[self._index].sent = true end
         panel.progressBar.targetValue = self._index
         self._index = self._index + 1
         Mail:AdvanceQueue()
-    else
-        -- Money changed for other reasons, ignore.
     end
 end
 

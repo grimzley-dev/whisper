@@ -87,6 +87,7 @@ local showAllCharacters = false
 local filteredMailList = nil
 local displayList = {}
 local mailRowPool = {}
+local globalEventFrame
 
 -- Pending State for Outgoing Mail
 Log.pendingMail = nil
@@ -162,25 +163,18 @@ local function FormatCurrencyStyled(amount)
     if not amount then return "0" end
     local isNegative = amount < 0
     amount = abs(amount)
+
+    -- We only care about gold now
     local gold = floor(amount / 10000)
-    local silver = floor((amount % 10000) / 100)
-    local copper = floor(amount % 100)
 
     local parts = {}
     if isNegative then tinsert(parts, "-") end
 
-    local hasGold = gold > 0
-    local hasSilver = silver > 0
-    local hasCopper = copper > 0
-
-    if hasGold then
+    if gold > 0 then
         tinsert(parts, C.HEX_GOLD .. FormatLargeNumber(gold) .. "|r" .. C.TEX_GOLD)
-    end
-    if hasSilver then
-        tinsert(parts, C.HEX_SILVER .. silver .. "|r" .. C.TEX_SILVER)
-    end
-    if hasCopper or (not hasGold and not hasSilver) then
-        tinsert(parts, C.HEX_COPPER .. copper .. "|r" .. C.TEX_COPPER)
+    else
+        -- If it's pure silver/copper, show 0g
+        tinsert(parts, C.HEX_GOLD .. "0|r" .. C.TEX_GOLD)
     end
 
     return tconcat(parts, " ")
@@ -258,7 +252,6 @@ local function FilterData(data, search, typeFilter, showAll)
     local res = {}
 
     for i, item in ipairs(data) do
-        -- PERMANENT RULE: Ignore all zero-gold mail
         if (not item.money or item.money == 0) then
             -- Skip entirely
         else
@@ -298,6 +291,7 @@ end
 -- INITIALIZATION & HOOKS
 -- =========================================================================
 function Log:Init()
+    self.enabled = true
     whisperDB.log = whisperDB.log or { mail = {}, guild = {} }
 
     if whisperDB.log.mail then
@@ -306,38 +300,59 @@ function Log:Init()
         end
     end
 
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("GUILDBANKFRAME_OPENED")
-    -- Listen for money changes to verify sent
-    f:RegisterEvent("PLAYER_MONEY")
-    f:RegisterEvent("MAIL_FAILED")
-    f:RegisterEvent("MAIL_SHOW")
-    f:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
-
-    f:SetScript("OnEvent", function(_, event, ...)
-        if event == "GUILDBANKFRAME_OPENED" then
-            Log:CreateGuildBankButton()
-        elseif event == "PLAYER_MONEY" then
-            Log:CheckMoneyVerify()
-        elseif event == "MAIL_FAILED" then
-            Log:ClearPendingMail()
-        elseif event == "MAIL_SHOW" then
-            Log:CreateButton()
-        elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
-            local interactionType = ...
-            if interactionType == Enum.PlayerInteractionType.MailInfo then
-                if mailLogFrame then mailLogFrame:Hide() end
-                if whisper.modules.Mail and whisper.modules.Mail.ResetPanel then
-                    whisper.modules.Mail:ResetPanel()
+    if not globalEventFrame then
+        globalEventFrame = CreateFrame("Frame")
+        globalEventFrame:SetScript("OnEvent", function(_, event, ...)
+            if event == "GUILDBANKFRAME_OPENED" then
+                Log:CreateGuildBankButton()
+            elseif event == "PLAYER_MONEY" then
+                Log:CheckMoneyVerify()
+            elseif event == "MAIL_FAILED" then
+                Log:ClearPendingMail()
+            elseif event == "MAIL_SHOW" then
+                if Log.enabled then Log:CreateButton() end
+            elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+                local interactionType = ...
+                if interactionType == Enum.PlayerInteractionType.MailInfo then
+                    if mailLogFrame then mailLogFrame:Hide() end
+                    if whisper.modules.Mail and whisper.modules.Mail.ResetPanel then
+                        whisper.modules.Mail:ResetPanel()
+                    end
                 end
             end
-        end
-    end)
+        end)
+    end
+
+    globalEventFrame:RegisterEvent("GUILDBANKFRAME_OPENED")
+    globalEventFrame:RegisterEvent("PLAYER_MONEY")
+    globalEventFrame:RegisterEvent("MAIL_FAILED")
+    globalEventFrame:RegisterEvent("MAIL_SHOW")
+    globalEventFrame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+
     self:HookMailFunctions()
+
+    -- If mailbox is already open when enabled, show button immediately
+    if MailFrame and MailFrame:IsShown() then
+        Log:CreateButton()
+    end
+end
+
+function Log:Disable()
+    self.enabled = false
+    if logoButton then logoButton:Hide() end
+    if mailLogFrame then mailLogFrame:Hide() end
+    if globalEventFrame then
+        globalEventFrame:UnregisterAllEvents()
+    end
 end
 
 function Log:CreateButton()
-    if logoButton then logoButton:Show() return end
+    if not self.enabled then return end
+
+    if logoButton then
+        logoButton:Show()
+        return
+    end
 
     logoButton = CreateFrame("Button", nil, MailFrame)
     logoButton:SetSize(40, 40)
@@ -356,10 +371,9 @@ function Log:CreateButton()
     logoButton:SetScript("OnMouseDown", function(self) self.tex:SetVertexColor(0.6, 0.6, 0.6) end)
     logoButton:SetScript("OnMouseUp", function(self) self.tex:SetVertexColor(0.8, 0.8, 0.8) end)
 
-    -- FIXED: Toggle Logic with Animations
     logoButton:SetScript("OnClick", function()
         if mailLogFrame and mailLogFrame:IsShown() then
-            FadeOut(mailLogFrame, 0.1) -- Hiding triggers OnHide which resets Mail module too
+            FadeOut(mailLogFrame, 0.1)
         else
             Log:ToggleMailLog(MailFrame)
         end
@@ -367,7 +381,10 @@ function Log:CreateButton()
 end
 
 function Log:HookMailFunctions()
+    if self.hooksApplied then return end
+
     hooksecurefunc("SendMail", function(target, subject, body)
+        if not Log.enabled then return end
         local money = GetSendMailMoney()
         local ts = GetFullTimestampStr()
         local actualBody = body
@@ -383,30 +400,30 @@ function Log:HookMailFunctions()
             money = money, timestamp = ts, dateSent = ts, dateOpened = ts,
             expanded = false, fromAddon = fromAddon
         }
-        -- SNAPSHOT: Capture exact money before send
         Log.moneyBefore = GetMoney()
     end)
 
-    hooksecurefunc("TakeInboxMoney", function(index) Log:CaptureReceivedMail(index) end)
-    hooksecurefunc("AutoLootMailItem", function(index) Log:CaptureReceivedMail(index) end)
+    hooksecurefunc("TakeInboxMoney", function(index) if Log.enabled then Log:CaptureReceivedMail(index) end end)
+    hooksecurefunc("AutoLootMailItem", function(index) if Log.enabled then Log:CaptureReceivedMail(index) end end)
 
     if OpenMailFrame then
         OpenMailFrame:HookScript("OnShow", function()
+            if not Log.enabled then return end
             local index = InboxFrame.openMailID
             if index then Log:CaptureReceivedMail(index) end
         end)
     end
+
+    self.hooksApplied = true
 end
 
--- NEW: Called on PLAYER_MONEY
 function Log:CheckMoneyVerify()
-    if not Log.pendingMail then return end
+    if not Log.pendingMail or not self.enabled then return end
 
     local currentMoney = GetMoney()
     local spent = Log.moneyBefore - currentMoney
-    local expected = Log.pendingMail.money + 30 -- Amount + 30c postage
+    local expected = Log.pendingMail.money + 30
 
-    -- Exact match required
     if spent == expected then
         Log:CommitLog()
     end
@@ -415,13 +432,11 @@ end
 function Log:CommitLog()
     local entry = Log.pendingMail
 
-    -- NEW: Ignore any outgoing mail with 0 gold attached
     if not entry.money or entry.money == 0 then
         Log.pendingMail = nil
         return
     end
 
-    -- Duplicate safety check
     local isDuplicate = false
     if whisperDB.log.mail and #whisperDB.log.mail > 0 then
         local last = whisperDB.log.mail[1]
@@ -448,7 +463,6 @@ function Log:CaptureReceivedMail(index)
     local _, _, sender, subject, money, _, daysLeft = GetInboxHeaderInfo(index)
     if not sender then return end
 
-    -- NEW: Immediately return if no gold is attached
     if not money or money == 0 then return end
 
     local now = GetFullTimestampStr()
@@ -561,7 +575,7 @@ local function CreateBasePanel(name, titleText, parent)
     tex:SetTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
     tex:SetSize(22, 22)
     tex:SetPoint("CENTER")
-    close:SetScript("OnClick", function() FadeOut(f, 0.1) end) -- Animated close
+    close:SetScript("OnClick", function() FadeOut(f, 0.1) end)
     close:SetScript("OnEnter", function() tex:SetVertexColor(0.5,0.5,0.5) end)
     close:SetScript("OnLeave", function() tex:SetVertexColor(1,1,1) end)
 
@@ -849,10 +863,10 @@ function Log:ToggleMailLog(anchorFrame)
         mailLogFrame:SetParent(anchorFrame)
         mailLogFrame:ClearAllPoints()
         mailLogFrame:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", 2, 0)
-        FadeIn(mailLogFrame, 0.1) -- ANIMATED SHOW
+        FadeIn(mailLogFrame, 0.1)
         Log:RefreshMailLog()
     else
-        FadeOut(mailLogFrame, 0.1) -- ANIMATED HIDE
+        FadeOut(mailLogFrame, 0.1)
     end
 end
 
@@ -1001,7 +1015,7 @@ function Log:RefreshMailLog()
                 yOffset = yOffset + dynamicHeight
             else
                 row:SetHeight(ROW_HEIGHT_COLLAPSED)
-                row.accent:SetHeight(ROW_HEIGHT_COLLAPSED) -- FORCE RESET ON COLLAPSE
+                row.accent:SetHeight(ROW_HEIGHT_COLLAPSED)
                 row.accent:Hide()
                 row.details:Hide()
                 yOffset = yOffset + ROW_HEIGHT_COLLAPSED

@@ -34,7 +34,7 @@ local ORL = LibStub and LibStub:GetLibrary("LibOpenRaid-1.0", true)
 local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
 local ROW_HEIGHT = 38
-local ANCHOR_HEIGHT = 12
+local ANCHOR_HEIGHT = 12 -- Increased by 1px
 local ROW_SPACING = 1
 local WIDTH_NORMAL = 210
 local WIDTH_COMPACT = 110
@@ -405,7 +405,7 @@ function Interface:Create()
     anchor:Hide()
 
     local anchorText = anchor:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorText:SetPoint("CENTER", 0, 1)
+    anchorText:SetPoint("CENTER", 0, 0) -- Adjusted from 1 to 0 for better centering on 13px
     anchorText:SetFont(STANDARD_FONT, 12)
     anchorText:SetText("ANCHOR")
     anchorText:SetTextColor(1, 1, 1)
@@ -546,7 +546,7 @@ function Interface:Refresh()
                 row.name:ClearAllPoints()
                 row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, -5)
                 row.dungeon:ClearAllPoints()
-                row.dungeon:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, -20)
+                row.dungeon:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 10, 5)
                 row.dungeon:SetPoint("RIGHT", -5, 0)
             else
                 row.name:SetText(data.name)

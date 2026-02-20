@@ -8,16 +8,15 @@ whisper:RegisterModule("Death Tracker", Deaths)
 -- Locals
 -- =========================
 local UnitIsDeadOrGhost = UnitIsDeadOrGhost
-local UnitGUID = UnitGUID
 local UnitName = UnitName
+local UnitClass = UnitClass
 local GetPlayerInfoByGUID = GetPlayerInfoByGUID
 local C_ClassColor = C_ClassColor
-local format = string.format
-local strsplit = strsplit
-local strmatch = string.match -- Optimization for pattern matching
 local C_Timer = C_Timer
-local UnitClass = UnitClass
-local tostring = tostring
+local format = string.format
+local GetNumGroupMembers = GetNumGroupMembers
+local IsInRaid = IsInRaid
+local IsInGroup = IsInGroup
 
 -- Constants
 local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
@@ -26,6 +25,7 @@ local HOLD_TIME = 4.0
 local FADE_TIME = 1.0
 local RESET_WINDOW = 5.0
 local SPACING = 2
+local UPDATE_THROTTLE = 0.1 -- 100ms throttle to prevent lag
 
 -- Default Values
 local DEFAULTS = {
@@ -37,9 +37,10 @@ local DEFAULTS = {
 
 -- State
 local messageFrame
-local deadCache = {}
+local deadCache = {} -- Stores death state by Safe Unit ID (e.g. "raid1")
 local recentDeaths = 0
 local resetTimer = nil
+local updateTimer = nil
 
 -- =========================
 -- Logic
@@ -49,7 +50,7 @@ local function ResetSpamCounter()
     resetTimer = nil
 end
 
-local function AnnounceDeath(unit, guid)
+local function AnnounceDeath(name, classFilename)
     local limit = whisperDB.deathTracker.limit or DEFAULTS.limit
     if recentDeaths >= limit then return end
 
@@ -60,10 +61,7 @@ local function AnnounceDeath(unit, guid)
 
     recentDeaths = recentDeaths + 1
 
-    local name = UnitName(unit)
     local classColorStr = "|cffffffff"
-    local _, classFilename = GetPlayerInfoByGUID(guid)
-
     if classFilename then
         local color = C_ClassColor.GetClassColor(classFilename)
         if color then
@@ -71,14 +69,89 @@ local function AnnounceDeath(unit, guid)
         end
     end
 
-    if name and name:find("-") then
-        name = strsplit("-", name)
-    end
-
+    -- Add message to frame
     if messageFrame then
         messageFrame:AddMessage(format("%s%s|r died", classColorStr, name or "Unknown"))
     end
 end
+
+-- =========================
+-- Group Scanning (12.0 Safe)
+-- =========================
+function Deaths:ScanGroupDeaths()
+    if not Deaths.enabled then return end
+
+    local numMembers = GetNumGroupMembers()
+    local prefix = IsInRaid() and "raid" or "party"
+
+    -- If in a party, we also need to check "player" separately
+    if not IsInRaid() then
+        if UnitIsDeadOrGhost("player") then
+            if not deadCache["player"] then
+                deadCache["player"] = true
+                local _, class = UnitClass("player")
+                AnnounceDeath(UnitName("player"), class)
+            end
+        else
+            deadCache["player"] = nil
+        end
+    end
+
+    -- Scan members
+    for i = 1, numMembers do
+        -- Construct the ID manually to avoid "Secret" taint
+        local safeID = prefix .. i
+
+        if UnitIsDeadOrGhost(safeID) then
+            if not deadCache[safeID] then
+                deadCache[safeID] = true
+
+                -- Retrieve info using the safe ID
+                local name = UnitName(safeID)
+                local _, class = UnitClass(safeID)
+
+                if name then
+                    AnnounceDeath(name, class)
+                end
+            end
+        else
+            -- Mark as alive so we can announce their death again if they die later
+            deadCache[safeID] = nil
+        end
+    end
+end
+
+-- =========================
+-- Event Handling
+-- =========================
+local eventFrame = CreateFrame("Frame")
+-- We use UNIT_FLAGS to detect when status changes (like health/death)
+eventFrame:RegisterEvent("UNIT_FLAGS")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+
+eventFrame:SetScript("OnEvent", function(self, event)
+    if not Deaths.enabled or Deaths.isTestMode then return end
+
+    if event == "UNIT_FLAGS" then
+        -- 12.0 FIX: Do NOT use the 'unit' argument. It might be Secret.
+        -- Instead, request a safe group scan.
+        if not updateTimer then
+            updateTimer = C_Timer.NewTimer(UPDATE_THROTTLE, function()
+                Deaths:ScanGroupDeaths()
+                updateTimer = nil
+            end)
+        end
+
+    elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+        -- Reset cache on load/roster change to prevent phantom announcements
+        deadCache = {}
+        recentDeaths = 0
+        if resetTimer then C_Timer.CancelTimer(resetTimer) end
+        resetTimer = nil
+        Deaths:CheckZone()
+    end
+end)
 
 -- =========================
 -- Test Mode Logic
@@ -115,7 +188,7 @@ function Deaths:ToggleTestMode()
 end
 
 -- =========================
--- Settings Update
+-- Settings Update & Init
 -- =========================
 function Deaths:UpdateSettings()
     if not messageFrame then return end
@@ -151,66 +224,15 @@ function Deaths:UpdateSettings()
     end
 end
 
--- =========================
--- Reset to Defaults
--- =========================
 function Deaths:ResetDefaults()
     local db = whisperDB.deathTracker
     db.limit = DEFAULTS.limit
     db.offsetX = DEFAULTS.offsetX
     db.offsetY = DEFAULTS.offsetY
     db.growUp = DEFAULTS.growUp
-
     self:UpdateSettings()
 end
 
--- =========================
--- Event Handling
--- =========================
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("UNIT_FLAGS")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-
-eventFrame:SetScript("OnEvent", function(self, event, unit)
-    if not Deaths.enabled or Deaths.isTestMode then return end
-
-    if event == "UNIT_FLAGS" then
-        if not unit then return end
-        
-        -- CRITICAL CRASH FIX:
-        -- Replaced table lookup 'validUnits[unit]' with String Pattern Matching.
-        -- This avoids using the restricted 'unit' variable as a table key,
-        -- which is what caused the "table index is secret" error.
-        local u = tostring(unit)
-        local isValid = (u == "player") or strmatch(u, "^raid%d+$") or strmatch(u, "^party%d+$")
-
-        if isValid then
-            local guid = UnitGUID(unit)
-            if not guid then return end
-
-            if UnitIsDeadOrGhost(unit) then
-                if not deadCache[guid] then
-                    deadCache[guid] = true
-                    AnnounceDeath(unit, guid)
-                end
-            else
-                deadCache[guid] = nil
-            end
-        end
-
-    elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
-        deadCache = {}
-        recentDeaths = 0
-        if resetTimer then C_Timer.CancelTimer(resetTimer) end
-        resetTimer = nil
-        Deaths:CheckZone()
-    end
-end)
-
--- =========================
--- Initialization
--- =========================
 function Deaths:Init()
     if not whisperDB.deathTracker then whisperDB.deathTracker = {} end
     local db = whisperDB.deathTracker
