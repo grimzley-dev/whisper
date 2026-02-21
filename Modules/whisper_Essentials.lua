@@ -42,9 +42,7 @@ local GetCVar = GetCVar
 local SetCVar = SetCVar
 local C_Timer = C_Timer
 local tonumber = tonumber
-local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
-local strsplit = strsplit
-local UnitName = UnitName
+local UnitGUID = UnitGUID
 
 -- Duration Threshold (5 minutes)
 local THRESHOLD_SECONDS = 300
@@ -86,6 +84,7 @@ local function IsUnitEligibleForBuff(unit, filterFunc)
 end
 
 -- Advanced Aura Checker: Scans for a list of Spell IDs or an Icon ID.
+-- HARDENED FOR 12.0: Ignores "Secret Value" userdata expiration times
 local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
     local timeRemaining = nil
     local hasBuff = false
@@ -108,7 +107,8 @@ local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
                     -- Skip this aura, we didn't cast it
                 else
                     hasBuff = true
-                    if aura.expirationTime and aura.expirationTime > 0 then
+                    -- Safe-check for 12.0 API Secret Values so math doesn't crash the UI
+                    if aura.expirationTime and type(aura.expirationTime) == "number" and aura.expirationTime > 0 then
                         timeRemaining = aura.expirationTime - GetTime()
                     end
                     return hasBuff, timeRemaining
@@ -132,7 +132,7 @@ local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
                     -- Skip
                 else
                     hasBuff = true
-                    if expirationTime and expirationTime > 0 then
+                    if expirationTime and type(expirationTime) == "number" and expirationTime > 0 then
                         timeRemaining = expirationTime - GetTime()
                     end
                     return hasBuff, timeRemaining
@@ -275,7 +275,7 @@ end
 
 local function UsesManaOil()
     local _, class = UnitClass("player")
-    if class == "SHAMAN" then return false end -- Shamans handle their own imbues
+    if class == "SHAMAN" then return false end
     if class == "ROGUE" then return true end
     if class == "MAGE" or class == "WARLOCK" or class == "PRIEST" or class == "EVOKER" then return true end
     local spec = GetSpecialization()
@@ -288,7 +288,7 @@ end
 
 local function UsesWhetstone()
     local _, class = UnitClass("player")
-    if class == "SHAMAN" or class == "ROGUE" then return false end -- Excluded classes
+    if class == "SHAMAN" or class == "ROGUE" then return false end
     if class == "WARRIOR" or class == "HUNTER" or class == "DEATHKNIGHT" or class == "DEMONHUNTER" then return true end
     local spec = GetSpecialization()
     if not spec then return false end
@@ -298,7 +298,6 @@ local function UsesWhetstone()
     return false
 end
 
--- RAID BUFF COVERAGE DB
 RaidBuffs.DB = {
     { spellIDs = {1126, 432661}, classes = { "DRUID" }, filter = nil },
     { spellIDs = {1459, 432778}, classes = { "MAGE" }, filter = IsManaUser },
@@ -308,70 +307,33 @@ RaidBuffs.DB = {
     { spellIDs = {462854}, classes = { "SHAMAN" }, filter = nil },
 }
 
--- SELF/TARGETED CLASS UTILITY DB
 RaidBuffs.CLASS_DB = {
     ["DRUID"] = {
-        { checkType = "targeted", spellIDs = { 474750 }, specFilter = { 105 }, talentFilter = 474750 } -- Symbiotic Relationship
+        { checkType = "targeted", spellIDs = { 474750 }, specFilter = { 105 }, talentFilter = 474750 }
     },
     ["ROGUE"] = {
         { checkType = "roguePoisons" }
     },
     ["SHAMAN"] = {
-        -- Enhancement (Windfury/Flametongue Imbues)
         { checkType = "weaponEnchant", spellIDs = {33757}, specFilter = { 263 } },
-        -- Elemental/Restoration (Flametongue/Earthliving OR Mana Oil)
         { checkType = "weaponEnchant", itemID = 224107, specFilter = { 262, 264 } },
-        -- Shields
         { checkType = "aura", spellIDs = { 192106, 52127 }, specFilter = { 262, 263 } },
-        -- Earth Shield (Resto casts on others)
         { checkType = "targeted", spellIDs = { 974 }, specFilter = { 264 } }
     },
     ["PALADIN"] = {
-        { checkType = "aura", spellIDs = { 465, 317920, 32223 } }, -- Base Auras (Devotion is now the base icon)
-        { checkType = "targeted", spellIDs = { 53563, 156910, 200025 }, specFilter = { 65 } } -- Holy Paladin Beacons
+        { checkType = "aura", spellIDs = { 465, 317920, 32223 } },
+        { checkType = "targeted", spellIDs = { 53563, 156910, 200025 }, specFilter = { 65 } }
     },
 }
 
--- PLAYER CONSUMABLES / INVENTORY DB
 RaidBuffs.CONSUMABLES = {
-    {
-        key = "Food",
-        checkType = "icon",
-        iconID = 136000, -- Standard Well Fed icon
-    },
-    {
-        key = "Flask",
-        checkType = "aura",
-        spellIDs = { 431971, 431972, 431973, 431974, 431975, 431976, 432021 }, -- TWW Flasks
-    },
-    {
-        key = "Augment Rune",
-        checkType = "aura",
-        spellIDs = { 1234969, 1242347 },
-    },
-    {
-        key = "Mana Oil",
-        checkType = "weaponEnchant",
-        itemID = 224107, -- Algari Mana Oil
-        playerFilter = UsesManaOil,
-    },
-    {
-        key = "Whetstone",
-        checkType = "weaponEnchant",
-        itemIDs = { 222504, 222510 }, -- Ironclaw Whetstone & Weightstone
-        playerFilter = UsesWhetstone,
-    },
-    {
-        key = "Healthstone",
-        checkType = "item",
-        itemID = 5512,
-        requireClass = "WARLOCK"
-    },
-    {
-        key = "Gateway Control Shard",
-        checkType = "item",
-        itemID = 188152,
-    }
+    { key = "Food", checkType = "icon", iconID = 136000 },
+    { key = "Flask", checkType = "aura", spellIDs = { 431971, 431972, 431973, 431974, 431975, 431976, 432021 } },
+    { key = "Augment Rune", checkType = "aura", spellIDs = { 1234969, 1242347 } },
+    { key = "Mana Oil", checkType = "weaponEnchant", itemID = 224107, playerFilter = UsesManaOil },
+    { key = "Whetstone", checkType = "weaponEnchant", itemIDs = { 222504, 222510 }, playerFilter = UsesWhetstone },
+    { key = "Healthstone", checkType = "item", itemID = 5512, requireClass = "WARLOCK" },
+    { key = "Gateway Control Shard", checkType = "item", itemID = 188152 }
 }
 
 function RaidBuffs:Init()
@@ -386,8 +348,8 @@ function RaidBuffs:Init()
     self.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
     self.frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     self.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    self.frame:RegisterEvent("UNIT_INVENTORY_CHANGED") -- For weapon enchants
-    self.frame:RegisterEvent("BAG_UPDATE") -- For healthstones/items
+    self.frame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+    self.frame:RegisterEvent("BAG_UPDATE")
 
     self.frame:SetScript("OnEvent", function(_, event, unit)
         if event == "PLAYER_REGEN_DISABLED" then
@@ -443,47 +405,37 @@ function RaidBuffs:UpdateDisplay()
 end
 
 function RaidBuffs:RunTestMode()
-    -- 1. CLASS UTILITY BUFFS (Self & Targeted)
     local classChecks = self.CLASS_DB[self.playerClass]
     if classChecks then
         for _, check in ipairs(classChecks) do
             if IsPlayerEligible(check) then
                 local foundTex = nil
                 if check.checkType == "roguePoisons" then
-                    foundTex = GetCachedSpellTexture(315584) -- Default Instant Poison Icon
+                    foundTex = GetCachedSpellTexture(315584)
                 else
                     foundTex = (check.itemIDs and GetCachedItemIcon(check.itemIDs[1])) or (check.itemID and GetCachedItemIcon(check.itemID)) or (check.spellIDs and GetCachedSpellTexture(check.spellIDs[1])) or check.icon
                 end
-                if foundTex then
-                    self:AddIcon(foundTex)
-                end
+                if foundTex then self:AddIcon(foundTex) end
             end
         end
     end
 
-    -- 2. CONSUMABLES (Food, Flasks, Healthstones, Runes, Generic Weapon Buffs)
     for _, cons in ipairs(self.CONSUMABLES) do
         if IsPlayerEligible(cons) then
             local iconTex = (cons.itemIDs and GetCachedItemIcon(cons.itemIDs[1])) or (cons.itemID and GetCachedItemIcon(cons.itemID)) or (cons.spellIDs and GetCachedSpellTexture(cons.spellIDs[1])) or cons.iconID
-            if iconTex then
-                self:AddIcon(iconTex)
-            end
+            if iconTex then self:AddIcon(iconTex) end
         end
     end
 
-    -- 3. RAID BUFFS
     for _, info in ipairs(self.DB) do
         if IsPlayerEligible(info) then
             local texture = GetCachedSpellTexture(info.spellIDs[1])
-            if texture then
-                self:AddIcon(texture)
-            end
+            if texture then self:AddIcon(texture) end
         end
     end
 end
 
 function RaidBuffs:CheckMissingBuffs()
-    -- 1. CLASS UTILITY BUFFS (Self & Targeted)
     local classChecks = self.CLASS_DB[self.playerClass]
     if classChecks then
         for _, check in ipairs(classChecks) do
@@ -521,14 +473,10 @@ function RaidBuffs:CheckMissingBuffs()
                         foundTex = GetCachedSpellTexture(check.spellIDs[1])
                     end
                 elseif check.checkType == "roguePoisons" then
-                    -- 381801 is the Dragon-Tempered Blades talent spell ID
                     local expectedPerCategory = IsPlayerSpell(381801) and 2 or 1
-
-                    local damagePoisons = { 315584, 2823 } -- Instant, Deadly
-                    local utilityPoisons = { 8679, 381637, 3408, 108211, 5761 } -- Wound, Atrophic, Crippling, Leeching, Numbing
-
-                    local damageCount = 0
-                    local utilityCount = 0
+                    local damagePoisons = { 315584, 2823 }
+                    local utilityPoisons = { 8679, 381637, 3408, 108211, 5761 }
+                    local damageCount, utilityCount = 0, 0
                     local hasExpiringPoison = false
 
                     for _, pid in ipairs(damagePoisons) do
@@ -538,7 +486,6 @@ function RaidBuffs:CheckMissingBuffs()
                             if remain and remain <= THRESHOLD_SECONDS then hasExpiringPoison = true end
                         end
                     end
-
                     for _, pid in ipairs(utilityPoisons) do
                         local has, remain = CheckAura("player", {pid}, nil, false)
                         if has then
@@ -549,61 +496,45 @@ function RaidBuffs:CheckMissingBuffs()
 
                     if damageCount < expectedPerCategory or utilityCount < expectedPerCategory then
                         isMissing = true
-                        foundTex = GetCachedSpellTexture(315584) -- Default to Instant Poison Icon
+                        foundTex = GetCachedSpellTexture(315584)
                     elseif hasExpiringPoison then
                         isExpiring = true
                         foundTex = GetCachedSpellTexture(315584)
                     end
                 end
 
-                if isMissing or isExpiring then
-                    self:AddIcon(foundTex)
-                end
+                if isMissing or isExpiring then self:AddIcon(foundTex) end
             end
         end
     end
 
-    -- 2. CONSUMABLES (Food, Flasks, Healthstones, Runes, Generic Weapon Buffs)
     for _, cons in ipairs(self.CONSUMABLES) do
         local isMissing = false
         local isExpiring = false
         local iconTex = nil
 
         if cons.requireClass and not HasClassInGroup(cons.requireClass) then
-            -- Skip if required class isn't in group
+            -- Skip
         elseif IsPlayerEligible(cons) then
             if cons.checkType == "icon" then
                 local has, remain = CheckAura("player", nil, cons.iconID, false)
                 iconTex = cons.iconID
-                if not has then
-                    isMissing = true
-                elseif remain and remain <= THRESHOLD_SECONDS then
-                    isExpiring = true
-                end
+                if not has then isMissing = true elseif remain and remain <= THRESHOLD_SECONDS then isExpiring = true end
             elseif cons.checkType == "item" then
                 if cons.itemIDs then
                     local hasAny = false
                     for _, iID in ipairs(cons.itemIDs) do
-                        if GetItemCount(iID) > 0 then
-                            hasAny = true
-                            break
-                        end
+                        if GetItemCount(iID) > 0 then hasAny = true break end
                     end
                     if not hasAny then isMissing = true end
                     iconTex = GetCachedItemIcon(cons.itemIDs[1])
                 else
-                    if GetItemCount(cons.itemID) == 0 then
-                        isMissing = true
-                    end
+                    if GetItemCount(cons.itemID) == 0 then isMissing = true end
                     iconTex = GetCachedItemIcon(cons.itemID)
                 end
             elseif cons.checkType == "aura" then
                 local has, remain = CheckAura("player", cons.spellIDs, nil, false)
-                if not has then
-                    isMissing = true
-                elseif remain and remain <= THRESHOLD_SECONDS then
-                    isExpiring = true
-                end
+                if not has then isMissing = true elseif remain and remain <= THRESHOLD_SECONDS then isExpiring = true end
                 iconTex = GetCachedSpellTexture(cons.spellIDs[1])
             elseif cons.checkType == "weaponEnchant" then
                 local hasMain, _, _, _, hasOff = GetWeaponEnchantInfo()
@@ -612,26 +543,21 @@ function RaidBuffs:CheckMissingBuffs()
                 elseif IsOffhandEnchantable() and not hasOff then
                     isMissing = true
                 end
-
                 if isMissing then
                     iconTex = (cons.itemIDs and GetCachedItemIcon(cons.itemIDs[1])) or (cons.itemID and GetCachedItemIcon(cons.itemID)) or (cons.spellIDs and GetCachedSpellTexture(cons.spellIDs[1])) or cons.iconID
                 end
             end
 
-            if isMissing or isExpiring then
-                self:AddIcon(iconTex)
-            end
+            if isMissing or isExpiring then self:AddIcon(iconTex) end
         end
     end
 
-    -- 3. RAID BUFFS
     local numGroupMembers = GetNumGroupMembers()
     local isInGroup = IsInGroup()
     local prefix = IsInRaid() and "raid" or "party"
 
     for _, info in ipairs(self.DB) do
         local texture = GetCachedSpellTexture(info.spellIDs[1])
-
         if IsPlayerEligible(info) then
             local amProvider = false
             for _, class in ipairs(info.classes) do
@@ -642,36 +568,25 @@ function RaidBuffs:CheckMissingBuffs()
                 local missingCount = 0
                 local playerIsExpiring = false
 
-                -- Check Self
                 if IsUnitEligibleForBuff("player", info.filter) then
                     local has, remain = CheckAura("player", info.spellIDs, nil, false)
-                    if not has then
-                        missingCount = missingCount + 1
-                    elseif remain and remain <= THRESHOLD_SECONDS then
-                        playerIsExpiring = true
-                    end
+                    if not has then missingCount = missingCount + 1 elseif remain and remain <= THRESHOLD_SECONDS then playerIsExpiring = true end
                 end
 
-                -- Check Group
                 if isInGroup then
                     for i = 1, numGroupMembers do
                         local unit = prefix .. i
                         if not UnitIsUnit(unit, "player") then
                             if IsUnitEligibleForBuff(unit, info.filter) then
                                 local has = CheckAura(unit, info.spellIDs, nil, false)
-                                if not has then
-                                    missingCount = missingCount + 1
-                                end
+                                if not has then missingCount = missingCount + 1 end
                             end
                         end
                     end
                 end
 
-                if missingCount > 0 or playerIsExpiring then
-                    self:AddIcon(texture)
-                end
+                if missingCount > 0 or playerIsExpiring then self:AddIcon(texture) end
             else
-                -- Receiver Logic (Someone else provides it)
                 local providerAvailable = false
                 for _, class in ipairs(info.classes) do
                     if HasClassInGroup(class) then providerAvailable = true break end
@@ -690,14 +605,9 @@ function RaidBuffs:CheckMissingBuffs()
     end
 end
 
--- =========================================================================
--- SUB-MODULE UI HELPERS
--- =========================================================================
-
 function RaidBuffs:AddIcon(texture)
     if not texture then return end
     local icon = self:GetFreeIcon()
-
     icon.texture:SetTexture(texture)
     icon:Show()
     tinsert(self.activeIcons, icon)
@@ -725,7 +635,6 @@ function RaidBuffs:GetFreeIcon()
     icon.texture:SetPoint("BOTTOMRIGHT", -1, 1)
     icon.texture:SetTexCoord(0.1, 0.9, 0.1, 0.9)
 
-    -- Missing glow animation
     if not icon.glow then
         local glow = icon:CreateTexture(nil, "OVERLAY")
         glow:SetTexture("Interface\\AddOns\\WeakAuras\\PowerAurasMedia\\Auras\\Aura145")
@@ -777,17 +686,15 @@ end
 local CombatAlerts = {
     enabled = true,
     isTesting = false,
-    showCrosshair = true -- Toggle state for future config integration
+    showCrosshair = true
 }
 Essentials.subModules["Combat Alerts"] = CombatAlerts
 
 function CombatAlerts:Init()
-    -- Load saved config states
     if whisperDB and whisperDB.essentials and whisperDB.essentials["Combat Alerts_Crosshair"] ~= nil then
         self.showCrosshair = whisperDB.essentials["Combat Alerts_Crosshair"]
     end
 
-    -- Ensure the main text alert frame is created
     if not self.frame then
         self.frame = CreateFrame("Frame", "whisperCombatAlertsFrame", UIParent)
         self.frame:SetSize(200, 50)
@@ -801,7 +708,6 @@ function CombatAlerts:Init()
         self.text:SetShadowOffset(0, 0)
 
         self.animGroup = self.frame:CreateAnimationGroup()
-
         local fadeIn = self.animGroup:CreateAnimation("Alpha")
         fadeIn:SetFromAlpha(0)
         fadeIn:SetToAlpha(1)
@@ -821,13 +727,10 @@ function CombatAlerts:Init()
         fadeOut:SetOrder(3)
 
         self.animGroup:SetScript("OnFinished", function()
-            if not self.isTesting then
-                self.frame:Hide()
-            end
+            if not self.isTesting then self.frame:Hide() end
         end)
     end
 
-    -- Ensure the crosshair frame is created
     if not self.crosshair then
         local ch = CreateFrame("Frame", "whisperCombatCrosshair", UIParent)
         ch:SetSize(25, 25)
@@ -871,16 +774,12 @@ function CombatAlerts:TriggerAlert(entering)
     self.animGroup:Stop()
     if entering then
         self.text:SetText("+Combat")
-        self.text:SetTextColor(1, 1, 1, 1) -- White
-        if self.showCrosshair then
-            self.crosshair:Show()
-        end
+        self.text:SetTextColor(1, 1, 1, 1)
+        if self.showCrosshair then self.crosshair:Show() end
     else
         self.text:SetText("-Combat")
-        self.text:SetTextColor(0.6, 0.6, 0.6, 1) -- Grey Shade
-        if self.crosshair then
-            self.crosshair:Hide()
-        end
+        self.text:SetTextColor(0.6, 0.6, 0.6, 1)
+        if self.crosshair then self.crosshair:Hide() end
     end
     self.frame:SetAlpha(0)
     self.frame:Show()
@@ -893,9 +792,7 @@ function CombatAlerts:Disable()
         self.frame:Hide()
         self.animGroup:Stop()
     end
-    if self.crosshair then
-        self.crosshair:Hide()
-    end
+    if self.crosshair then self.crosshair:Hide() end
 end
 
 function CombatAlerts:ToggleTestMode(state)
@@ -923,9 +820,7 @@ function CombatAlerts:ToggleTestMode(state)
                 self.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
             end
         end
-        if self.crosshair then
-            self.crosshair:Hide()
-        end
+        if self.crosshair then self.crosshair:Hide() end
     end
 end
 
@@ -937,13 +832,13 @@ local PIHelper = {
     isTesting = false,
     activeGlows = {},
     glowPool = {},
+    ticker = nil,
     TRACKED_SPELLS = {
         [190319] = true, -- Mage: Combustion
     }
 }
 Essentials.subModules["Power Infusion Helper"] = PIHelper
 
--- Mathematical standalone Pixel Glow generator (no external libraries needed)
 function PIHelper:GetGlowFrame(parent)
     for _, g in ipairs(self.glowPool) do
         if not g.isActive then
@@ -981,7 +876,7 @@ function PIHelper:GetGlowFrame(parent)
             local x, y
             if pos < w then
                 x, y = pos, 0
-                line:SetSize(8, 2) -- 8px length, 2px thickness
+                line:SetSize(8, 2)
             elseif pos < w + h then
                 x, y = w, pos - w
                 line:SetSize(2, 8)
@@ -992,8 +887,6 @@ function PIHelper:GetGlowFrame(parent)
                 x, y = 0, h - (pos - (2 * w + h))
                 line:SetSize(2, 8)
             end
-
-            -- Keep the glow tightly wrapped to the borders
             line:SetPoint("CENTER", self, "TOPLEFT", x, -y)
         end
     end)
@@ -1003,24 +896,9 @@ function PIHelper:GetGlowFrame(parent)
     return f
 end
 
--- ElvUI frame scanner
-function PIHelper:FindUnitFrame(targetName)
-    local unit = nil
-    if UnitIsUnit("player", targetName) then
-        unit = "player"
-    else
-        local prefix = IsInRaid() and "raid" or "party"
-        for i = 1, GetNumGroupMembers() do
-            if UnitIsUnit(prefix..i, targetName) then
-                unit = prefix..i
-                break
-            end
-        end
-    end
-
+function PIHelper:FindUnitFrame(unit)
     if not unit then return nil end
 
-    -- Scan typical ElvUI group frame structures
     local elvPrefixes = {"ElvUF_PartyGroup", "ElvUF_RaidGroup", "ElvUF_Raid1Group", "ElvUF_Raid2Group", "ElvUF_Raid3Group"}
     for _, prefix in ipairs(elvPrefixes) do
         for i = 1, 8 do
@@ -1033,7 +911,6 @@ function PIHelper:FindUnitFrame(targetName)
         end
     end
 
-    -- Fallbacks for solo/testing
     if unit == "player" then
         if _G["ElvUF_Player"] and _G["ElvUF_Player"]:IsVisible() then return _G["ElvUF_Player"] end
     end
@@ -1041,80 +918,54 @@ function PIHelper:FindUnitFrame(targetName)
     return nil
 end
 
-function PIHelper:AddGlow(destName)
-    local nameOnly = strsplit("-", destName)
-    local targetFrame = self:FindUnitFrame(nameOnly)
-    if not targetFrame then return end
-
-    if not self.activeGlows[nameOnly] then
-        self.activeGlows[nameOnly] = self:GetGlowFrame(targetFrame)
-    end
-end
-
-function PIHelper:RemoveGlow(destName)
-    local nameOnly = strsplit("-", destName)
-    if self.activeGlows[nameOnly] then
-        self.activeGlows[nameOnly]:Hide()
-        self.activeGlows[nameOnly].isActive = false
-        self.activeGlows[nameOnly] = nil
-    end
-end
-
-function PIHelper:Init()
-    if not self.frame then
-        self.frame = CreateFrame("Frame")
-        self.frame:SetScript("OnEvent", function(_, event, ...)
-            if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-                if self.isTesting then return end
-
-                -- Live tracking is intended for Priests, but we leave the logic intact
-                -- so you can use the test mode freely on your Mage.
-                local _, playerClass = UnitClass("player")
-                if playerClass ~= "PRIEST" then return end
-
-                local _, subEvent, _, _, _, _, _, _, destName, _, _, spellId = CombatLogGetCurrentEventInfo()
-
-                -- Smart Cleanup: Hide the glow early if the player successfully receives Power Infusion (SpellID: 10060)
-                if subEvent == "SPELL_AURA_APPLIED" and spellId == 10060 and destName then
-                    self:RemoveGlow(destName)
-                    return
-                end
-
-                if not self.TRACKED_SPELLS[spellId] then return end
-
-                if subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH" then
-                    if destName then self:AddGlow(destName) end
-                elseif subEvent == "SPELL_AURA_REMOVED" then
-                    if destName then self:RemoveGlow(destName) end
-                end
-            end
-        end)
-    end
-    self.frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-end
-
-function PIHelper:Disable()
-    if self.frame then
-        self.frame:UnregisterAllEvents()
-    end
-    for name, glow in pairs(self.activeGlows) do
-        glow:Hide()
-        glow.isActive = false
-    end
-    self.activeGlows = {}
-end
-
-function PIHelper:ToggleTestMode(state)
-    self.isTesting = state
-    if state then
-        -- Find the player's own ElvUI frame to preview the glow
-        local playerName = UnitName("player")
-        self:AddGlow(playerName)
-    else
-        for name, glow in pairs(self.activeGlows) do
-            glow:Hide()
-            glow.isActive = false
+function PIHelper:AddGlow(unit, guid)
+    if not self.activeGlows[guid] then
+        local targetFrame = self:FindUnitFrame(unit)
+        if targetFrame then
+            self.activeGlows[guid] = self:GetGlowFrame(targetFrame)
         end
-        self.activeGlows = {}
+    else
+        -- Continually snap the glow to the frame just in case ElvUI reconstructs the grid mid-combat
+        local targetFrame = self:FindUnitFrame(unit)
+        if targetFrame then
+            self.activeGlows[guid]:SetParent(targetFrame)
+            self.activeGlows[guid]:SetAllPoints(targetFrame)
+        end
     end
 end
+
+function PIHelper:RemoveGlow(guid)
+    if self.activeGlows[guid] then
+        self.activeGlows[guid]:Hide()
+        self.activeGlows[guid].isActive = false
+        self.activeGlows[guid] = nil
+    end
+end
+
+function PIHelper:ScanGroup()
+    if self.isTesting then return end
+
+    local _, playerClass = UnitClass("player")
+    -- In a real scenario, this only matters if you are playing your Priest.
+    if playerClass ~= "PRIEST" then return end
+
+    local prefix = IsInRaid() and "raid" or IsInGroup() and "party" or nil
+    if not prefix then return end
+
+    local num = GetNumGroupMembers()
+    for i = 1, num do
+        local unit = prefix .. i
+        if not UnitIsUnit(unit, "player") and UnitExists(unit) then
+            local hasTrigger = false
+            local hasPI = false
+
+            if C_UnitAuras_GetAuraDataByIndex then
+                for j = 1, 40 do
+                    local aura = C_UnitAuras_GetAuraDataByIndex(unit, j, "HELPFUL")
+                    if not aura then break end
+
+                    if self.TRACKED_SPELLS[aura.spellId] then
+                        hasTrigger = true
+                    elseif aura.spellId == 10060 then -- Power Infusion
+                        hasPI = true
+                    end
