@@ -37,6 +37,14 @@ local C_UnitAuras_GetAuraDataBySpellName = C_UnitAuras and C_UnitAuras.GetAuraDa
 local C_UnitAuras_GetAuraDataByIndex = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
 local C_Spell_GetSpellInfo = C_Spell and C_Spell.GetSpellInfo
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
+local C_NamePlate_GetNamePlateForUnit = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+local GetCVar = GetCVar
+local SetCVar = SetCVar
+local C_Timer = C_Timer
+local tonumber = tonumber
+local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
+local strsplit = strsplit
+local UnitName = UnitName
 
 -- Duration Threshold (5 minutes)
 local THRESHOLD_SECONDS = 300
@@ -918,5 +926,195 @@ function CombatAlerts:ToggleTestMode(state)
         if self.crosshair then
             self.crosshair:Hide()
         end
+    end
+end
+
+-- =========================================================================
+-- SUB-MODULE: POWER INFUSION HELPER
+-- =========================================================================
+local PIHelper = {
+    enabled = true,
+    isTesting = false,
+    activeGlows = {},
+    glowPool = {},
+    TRACKED_SPELLS = {
+        [190319] = true, -- Mage: Combustion
+    }
+}
+Essentials.subModules["Power Infusion Helper"] = PIHelper
+
+-- Mathematical standalone Pixel Glow generator (no external libraries needed)
+function PIHelper:GetGlowFrame(parent)
+    for _, g in ipairs(self.glowPool) do
+        if not g.isActive then
+            g:SetParent(parent)
+            g:SetAllPoints(parent)
+            g:SetFrameLevel(parent:GetFrameLevel() + 10)
+            g.isActive = true
+            g:Show()
+            return g
+        end
+    end
+
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetAllPoints(parent)
+    f:SetFrameLevel(parent:GetFrameLevel() + 10)
+
+    f.lines = {}
+    for i = 1, 8 do
+        local line = f:CreateTexture(nil, "OVERLAY")
+        line:SetColorTexture(1, 1, 0, 1) -- 100% Yellow
+        tinsert(f.lines, line)
+    end
+
+    local timer = 0
+    f:SetScript("OnUpdate", function(self, elapsed)
+        timer = timer + elapsed * 2
+        local w, h = self:GetSize()
+        if w == 0 or h == 0 then return end
+        local p = 2 * (w + h)
+
+        for i, line in ipairs(self.lines) do
+            local offset = (i - 1) * (p / 8)
+            local pos = (timer * 50 + offset) % p
+
+            local x, y
+            if pos < w then
+                x, y = pos, 0
+                line:SetSize(8, 2) -- 8px length, 2px thickness
+            elseif pos < w + h then
+                x, y = w, pos - w
+                line:SetSize(2, 8)
+            elseif pos < 2 * w + h then
+                x, y = w - (pos - (w + h)), h
+                line:SetSize(8, 2)
+            else
+                x, y = 0, h - (pos - (2 * w + h))
+                line:SetSize(2, 8)
+            end
+
+            -- Keep the glow tightly wrapped to the borders
+            line:SetPoint("CENTER", self, "TOPLEFT", x, -y)
+        end
+    end)
+
+    f.isActive = true
+    tinsert(self.glowPool, f)
+    return f
+end
+
+-- ElvUI frame scanner
+function PIHelper:FindUnitFrame(targetName)
+    local unit = nil
+    if UnitIsUnit("player", targetName) then
+        unit = "player"
+    else
+        local prefix = IsInRaid() and "raid" or "party"
+        for i = 1, GetNumGroupMembers() do
+            if UnitIsUnit(prefix..i, targetName) then
+                unit = prefix..i
+                break
+            end
+        end
+    end
+
+    if not unit then return nil end
+
+    -- Scan typical ElvUI group frame structures
+    local elvPrefixes = {"ElvUF_PartyGroup", "ElvUF_RaidGroup", "ElvUF_Raid1Group", "ElvUF_Raid2Group", "ElvUF_Raid3Group"}
+    for _, prefix in ipairs(elvPrefixes) do
+        for i = 1, 8 do
+            for j = 1, 5 do
+                local frame = _G[prefix .. i .. "UnitButton" .. j]
+                if frame and frame.unit and UnitIsUnit(frame.unit, unit) and frame:IsVisible() then
+                    return frame
+                end
+            end
+        end
+    end
+
+    -- Fallbacks for solo/testing
+    if unit == "player" then
+        if _G["ElvUF_Player"] and _G["ElvUF_Player"]:IsVisible() then return _G["ElvUF_Player"] end
+    end
+
+    return nil
+end
+
+function PIHelper:AddGlow(destName)
+    local nameOnly = strsplit("-", destName)
+    local targetFrame = self:FindUnitFrame(nameOnly)
+    if not targetFrame then return end
+
+    if not self.activeGlows[nameOnly] then
+        self.activeGlows[nameOnly] = self:GetGlowFrame(targetFrame)
+    end
+end
+
+function PIHelper:RemoveGlow(destName)
+    local nameOnly = strsplit("-", destName)
+    if self.activeGlows[nameOnly] then
+        self.activeGlows[nameOnly]:Hide()
+        self.activeGlows[nameOnly].isActive = false
+        self.activeGlows[nameOnly] = nil
+    end
+end
+
+function PIHelper:Init()
+    if not self.frame then
+        self.frame = CreateFrame("Frame")
+        self.frame:SetScript("OnEvent", function(_, event, ...)
+            if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+                if self.isTesting then return end
+
+                -- Live tracking is intended for Priests, but we leave the logic intact
+                -- so you can use the test mode freely on your Mage.
+                local _, playerClass = UnitClass("player")
+                if playerClass ~= "PRIEST" then return end
+
+                local _, subEvent, _, _, _, _, _, _, destName, _, _, spellId = CombatLogGetCurrentEventInfo()
+
+                -- Smart Cleanup: Hide the glow early if the player successfully receives Power Infusion (SpellID: 10060)
+                if subEvent == "SPELL_AURA_APPLIED" and spellId == 10060 and destName then
+                    self:RemoveGlow(destName)
+                    return
+                end
+
+                if not self.TRACKED_SPELLS[spellId] then return end
+
+                if subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH" then
+                    if destName then self:AddGlow(destName) end
+                elseif subEvent == "SPELL_AURA_REMOVED" then
+                    if destName then self:RemoveGlow(destName) end
+                end
+            end
+        end)
+    end
+    self.frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+end
+
+function PIHelper:Disable()
+    if self.frame then
+        self.frame:UnregisterAllEvents()
+    end
+    for name, glow in pairs(self.activeGlows) do
+        glow:Hide()
+        glow.isActive = false
+    end
+    self.activeGlows = {}
+end
+
+function PIHelper:ToggleTestMode(state)
+    self.isTesting = state
+    if state then
+        -- Find the player's own ElvUI frame to preview the glow
+        local playerName = UnitName("player")
+        self:AddGlow(playerName)
+    else
+        for name, glow in pairs(self.activeGlows) do
+            glow:Hide()
+            glow.isActive = false
+        end
+        self.activeGlows = {}
     end
 end
