@@ -42,7 +42,10 @@ local GetCVar = GetCVar
 local SetCVar = SetCVar
 local C_Timer = C_Timer
 local tonumber = tonumber
-local UnitGUID = UnitGUID
+local UnitName = UnitName
+local strsplit = strsplit
+local GetSpellCooldown = GetSpellCooldown
+local pcall = pcall
 
 -- Duration Threshold (5 minutes)
 local THRESHOLD_SECONDS = 300
@@ -84,7 +87,7 @@ local function IsUnitEligibleForBuff(unit, filterFunc)
 end
 
 -- Advanced Aura Checker: Scans for a list of Spell IDs or an Icon ID.
--- HARDENED FOR 12.0: Ignores "Secret Value" userdata expiration times
+-- HARDENED FOR 12.0: Safely bypasses "Secret Value" expiration times
 local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
     local timeRemaining = nil
     local hasBuff = false
@@ -107,7 +110,7 @@ local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
                     -- Skip this aura, we didn't cast it
                 else
                     hasBuff = true
-                    -- Safe-check for 12.0 API Secret Values so math doesn't crash the UI
+                    -- 12.0 SECURE CHECK: Ensure expirationTime is a readable number, not a secret userdata object
                     if aura.expirationTime and type(aura.expirationTime) == "number" and aura.expirationTime > 0 then
                         timeRemaining = aura.expirationTime - GetTime()
                     end
@@ -825,147 +828,93 @@ function CombatAlerts:ToggleTestMode(state)
 end
 
 -- =========================================================================
--- SUB-MODULE: POWER INFUSION HELPER
+-- SUB-MODULE: POWER INFUSION HELPER (PRIEST ONLY + TARGET FILTER)
 -- =========================================================================
 local PIHelper = {
     enabled = true,
     isTesting = false,
-    activeGlows = {},
-    glowPool = {},
-    ticker = nil,
-    TRACKED_SPELLS = {
-        [190319] = true, -- Mage: Combustion
-    }
+    lastSoundTime = 0,
+    -- Path to your custom media
+    soundPath = "Interface\\AddOns\\whisper\\Media\\whisperPI.mp3"
 }
 Essentials.subModules["Power Infusion Helper"] = PIHelper
 
-function PIHelper:GetGlowFrame(parent)
-    for _, g in ipairs(self.glowPool) do
-        if not g.isActive then
-            g:SetParent(parent)
-            g:SetAllPoints(parent)
-            g:SetFrameLevel(parent:GetFrameLevel() + 10)
-            g.isActive = true
-            g:Show()
-            return g
-        end
-    end
+function PIHelper:Init()
+    -- 1. PRIEST CHECK: Only run if the player is a Priest
+    local _, class = UnitClass("player")
+    if class ~= "PRIEST" then return end
 
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetAllPoints(parent)
-    f:SetFrameLevel(parent:GetFrameLevel() + 10)
+    self.frame = CreateFrame("Frame")
+    self.frame:RegisterEvent("CHAT_MSG_WHISPER")
+    self.frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
-    f.lines = {}
-    for i = 1, 8 do
-        local line = f:CreateTexture(nil, "OVERLAY")
-        line:SetColorTexture(1, 1, 0, 1) -- 100% Yellow
-        tinsert(f.lines, line)
-    end
+    self.frame:SetScript("OnEvent", function(_, event, ...)
+        if event == "CHAT_MSG_WHISPER" then
+            local text, playerName = ...
 
-    local timer = 0
-    f:SetScript("OnUpdate", function(self, elapsed)
-        timer = timer + elapsed * 2
-        local w, h = self:GetSize()
-        if w == 0 or h == 0 then return end
-        local p = 2 * (w + h)
+            -- 2. TARGET FILTERING
+            -- We look for 'piTarget' in your global whisperDB
+            local selectedTarget = whisperDB and whisperDB.piTarget
 
-        for i, line in ipairs(self.lines) do
-            local offset = (i - 1) * (p / 8)
-            local pos = (timer * 50 + offset) % p
-
-            local x, y
-            if pos < w then
-                x, y = pos, 0
-                line:SetSize(8, 2)
-            elseif pos < w + h then
-                x, y = w, pos - w
-                line:SetSize(2, 8)
-            elseif pos < 2 * w + h then
-                x, y = w - (pos - (w + h)), h
-                line:SetSize(8, 2)
-            else
-                x, y = 0, h - (pos - (2 * w + h))
-                line:SetSize(2, 8)
+            if text and text:lower():match("^pi me") then
+                -- Allow if no target is selected ("None") OR if sender matches target
+                if not selectedTarget or selectedTarget == "None" or playerName == selectedTarget then
+                    self:ProcessPIRequest(playerName)
+                end
             end
-            line:SetPoint("CENTER", self, "TOPLEFT", x, -y)
-        end
-    end)
-
-    f.isActive = true
-    tinsert(self.glowPool, f)
-    return f
-end
-
-function PIHelper:FindUnitFrame(unit)
-    if not unit then return nil end
-
-    local elvPrefixes = {"ElvUF_PartyGroup", "ElvUF_RaidGroup", "ElvUF_Raid1Group", "ElvUF_Raid2Group", "ElvUF_Raid3Group"}
-    for _, prefix in ipairs(elvPrefixes) do
-        for i = 1, 8 do
-            for j = 1, 5 do
-                local frame = _G[prefix .. i .. "UnitButton" .. j]
-                if frame and frame.unit and UnitIsUnit(frame.unit, unit) and frame:IsVisible() then
-                    return frame
+        elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+            local unitTarget, _, spellID = ...
+            if unitTarget == "player" and spellID == 10060 then
+                if CombatAlerts and CombatAlerts.frame then
+                    CombatAlerts.animGroup:Stop()
+                    CombatAlerts.frame:Hide()
                 end
             end
         end
-    end
-
-    if unit == "player" then
-        if _G["ElvUF_Player"] and _G["ElvUF_Player"]:IsVisible() then return _G["ElvUF_Player"] end
-    end
-
-    return nil
+    end)
 end
 
-function PIHelper:AddGlow(unit, guid)
-    if not self.activeGlows[guid] then
-        local targetFrame = self:FindUnitFrame(unit)
-        if targetFrame then
-            self.activeGlows[guid] = self:GetGlowFrame(targetFrame)
+function PIHelper:ProcessPIRequest(playerName)
+    if not (CombatAlerts and CombatAlerts.frame) then return end
+
+    local currentTime = GetTime()
+    local nameOnly = strsplit("-", playerName)
+
+    -- 1. SPAM PROTECTED CUSTOM SOUND
+    if (currentTime - self.lastSoundTime) > 5 then
+        PlaySoundFile(self.soundPath, "Master")
+        self.lastSoundTime = currentTime
+    end
+
+    -- 2. TEXT DISPLAY LOGIC
+    local _, classTag = UnitClass(nameOnly)
+    local color = (classTag and RAID_CLASS_COLORS[classTag]) or {r=1, g=1, b=1}
+    local hex = string.format("ff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
+
+    CombatAlerts.animGroup:Stop()
+    CombatAlerts.text:SetText("Power Infusion on |c" .. hex .. nameOnly .. "|r")
+    CombatAlerts.text:SetTextColor(1, 1, 1)
+
+    -- 3. ANIMATION OVERRIDE
+    if CombatAlerts.animGroup:GetAnimations() then
+        local animations = {CombatAlerts.animGroup:GetAnimations()}
+        for _, anim in ipairs(animations) do
+            if anim.SetStartDelay and anim:GetOrder() == 3 then
+                anim:SetStartDelay(8)
+            end
         end
-    else
-        -- Continually snap the glow to the frame just in case ElvUI reconstructs the grid mid-combat
-        local targetFrame = self:FindUnitFrame(unit)
-        if targetFrame then
-            self.activeGlows[guid]:SetParent(targetFrame)
-            self.activeGlows[guid]:SetAllPoints(targetFrame)
-        end
     end
+
+    CombatAlerts.frame:SetAlpha(1)
+    CombatAlerts.frame:Show()
+    CombatAlerts.animGroup:Play()
 end
 
-function PIHelper:RemoveGlow(guid)
-    if self.activeGlows[guid] then
-        self.activeGlows[guid]:Hide()
-        self.activeGlows[guid].isActive = false
-        self.activeGlows[guid] = nil
-    end
+function PIHelper:Disable()
+    if self.frame then self.frame:UnregisterAllEvents() end
 end
 
-function PIHelper:ScanGroup()
-    if self.isTesting then return end
-
-    local _, playerClass = UnitClass("player")
-    -- In a real scenario, this only matters if you are playing your Priest.
-    if playerClass ~= "PRIEST" then return end
-
-    local prefix = IsInRaid() and "raid" or IsInGroup() and "party" or nil
-    if not prefix then return end
-
-    local num = GetNumGroupMembers()
-    for i = 1, num do
-        local unit = prefix .. i
-        if not UnitIsUnit(unit, "player") and UnitExists(unit) then
-            local hasTrigger = false
-            local hasPI = false
-
-            if C_UnitAuras_GetAuraDataByIndex then
-                for j = 1, 40 do
-                    local aura = C_UnitAuras_GetAuraDataByIndex(unit, j, "HELPFUL")
-                    if not aura then break end
-
-                    if self.TRACKED_SPELLS[aura.spellId] then
-                        hasTrigger = true
-                    elseif aura.spellId == 10060 then -- Power Infusion
-                        hasPI = true
-                    end
+function PIHelper:ToggleTestMode(state)
+    self.isTesting = state
+    if state then self:ProcessPIRequest(UnitName("player")) end
+end
