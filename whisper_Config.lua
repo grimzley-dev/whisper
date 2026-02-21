@@ -274,9 +274,9 @@ local function CreateModuleContent(parent, moduleName, module)
     title:SetText(moduleName)
     title:SetTextColor(1, 1, 1)
 
-    -- Only create toggle button if this is a real module (not Utilities)
+    -- Create master toggle button for standard modules (Excludes Utilities & Essentials)
     local toggleBtn
-    if module then
+    if module and moduleName ~= "Essentials" then
         toggleBtn = CreateStyledButton(content, "", 100, 24)
         toggleBtn:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -15)
 
@@ -320,7 +320,6 @@ local function CreateModuleContent(parent, moduleName, module)
             end
         end)
 
-        -- Store test button reference in module for later access
         module.testButton = testBtn
 
         -- Reset Button
@@ -328,35 +327,25 @@ local function CreateModuleContent(parent, moduleName, module)
         resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
         resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
 
-        -- Store references to sliders so we can update them
+        -- Sliders
         local sliderRefs = {}
-
         local xSlider = CreateCustomSlider(content, "X Offset", -100, 100, 1,
             function() return db.offsetX end,
-            function(val)
-                db.offsetX = val
-                if module.UpdateSettings then module:UpdateSettings() end
-            end
+            function(val) db.offsetX = val; if module.UpdateSettings then module:UpdateSettings() end end
         )
         xSlider:SetPoint("TOPLEFT", 0, yStart)
         sliderRefs.xSlider = xSlider
 
         local ySlider = CreateCustomSlider(content, "Y Offset", -100, 100, 1,
             function() return db.offsetY end,
-            function(val)
-                db.offsetY = val
-                if module.UpdateSettings then module:UpdateSettings() end
-            end
+            function(val) db.offsetY = val; if module.UpdateSettings then module:UpdateSettings() end end
         )
         ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
         sliderRefs.ySlider = ySlider
 
         local limitSlider = CreateCustomSlider(content, "Death Limit", 1, 20, 1,
             function() return db.limit end,
-            function(val)
-                db.limit = val
-                if module.UpdateSettings then module:UpdateSettings() end
-            end
+            function(val) db.limit = val; if module.UpdateSettings then module:UpdateSettings() end end
         )
         limitSlider:SetPoint("TOPLEFT", 0, yStart - 120)
         sliderRefs.limitSlider = limitSlider
@@ -381,170 +370,19 @@ local function CreateModuleContent(parent, moduleName, module)
             if module.UpdateSettings then module:UpdateSettings() end
         end)
 
-        -- Reset Defaults Button Handler
         resetBtn:SetScript("OnClick", function()
             if module.ResetDefaults then
                 module:ResetDefaults()
-                -- Update all slider visuals
-                if sliderRefs.xSlider and sliderRefs.xSlider.UpdateVisuals then
-                    sliderRefs.xSlider.UpdateVisuals(db.offsetX)
-                end
-                if sliderRefs.ySlider and sliderRefs.ySlider.UpdateVisuals then
-                    sliderRefs.ySlider.UpdateVisuals(db.offsetY)
-                end
-                if sliderRefs.limitSlider and sliderRefs.limitSlider.UpdateVisuals then
-                    sliderRefs.limitSlider.UpdateVisuals(db.limit)
-                end
+                if sliderRefs.xSlider and sliderRefs.xSlider.UpdateVisuals then sliderRefs.xSlider.UpdateVisuals(db.offsetX) end
+                if sliderRefs.ySlider and sliderRefs.ySlider.UpdateVisuals then sliderRefs.ySlider.UpdateVisuals(db.offsetY) end
+                if sliderRefs.limitSlider and sliderRefs.limitSlider.UpdateVisuals then sliderRefs.limitSlider.UpdateVisuals(db.limit) end
                 UpdateGrowText()
             end
         end)
 
     elseif moduleName == "Keystones" then
-            local yStart = -80
-            local db = whisperDB.keystones
-
-            -- TEST BUTTON
-            local testBtn = CreateStyledButton(content, "Test", 80, 24)
-            testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
-
-            local function UpdateTestText()
-                if module.isTestMode then
-                    testBtn:SetText("End")
-                    testBtn:GetFontString():SetTextColor(unpack(COLOR_RED))
-                else
-                    testBtn:SetText("Test")
-                    testBtn:GetFontString():SetTextColor(1, 1, 1)
-                end
-            end
-
-            testBtn:SetScript("OnClick", function()
-                if module.ToggleTestMode then
-                    module:ToggleTestMode()
-                    UpdateTestText()
-                end
-            end)
-
-            -- Store button for auto-reset on close
-            module.testButton = testBtn
-
-            -- Reset Button
-            local resetBtn = CreateStyledButton(content, "Reset", 80, 24)
-            resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
-            resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
-
-            -- X Offset Slider (Percentage based)
-            local xSlider = CreateCustomSlider(content, "X Offset", -50, 50, 1,
-                function()
-                    local sw = UIParent:GetWidth()
-                    if sw == 0 then return 0 end
-                    return math.floor((db.offsetX / sw) * 100 + 0.5)
-                end,
-                function(val)
-                    local sw = UIParent:GetWidth()
-                    db.offsetX = (val / 100) * sw
-                    if module.UpdateSettings then module:UpdateSettings() end
-                end
-            )
-            xSlider:SetPoint("TOPLEFT", 0, yStart)
-
-            -- Y Offset Slider (Percentage based)
-            local ySlider = CreateCustomSlider(content, "Y Offset", -50, 50, 1,
-                function()
-                    local sh = UIParent:GetHeight()
-                    if sh == 0 then return 0 end
-                    return math.floor((db.offsetY / sh) * 100 + 0.5)
-                end,
-                function(val)
-                    local sh = UIParent:GetHeight()
-                    db.offsetY = (val / 100) * sh
-                    if module.UpdateSettings then module:UpdateSettings() end
-                end
-            )
-            ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
-
-            -- Toggle: Style (cycles through Default > Compact > Transparent)
-            local compactBtn = CreateStyledButton(content, "", 140, 24)
-            compactBtn:SetPoint("TOPLEFT", 0, yStart - 120)
-
-            local function UpdateCompactText()
-                if db.transparentMode then
-                    compactBtn:SetText("Style: Transparent")
-                    compactBtn:GetFontString():SetTextColor(unpack(COLOR_CYAN))
-                elseif db.compactMode then
-                    compactBtn:SetText("Style: Compact")
-                    compactBtn:GetFontString():SetTextColor(1, 0.4, 0.8)
-                else
-                    compactBtn:SetText("Style: Default")
-                    compactBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
-                end
-            end
-            UpdateCompactText()
-
-            compactBtn:SetScript("OnClick", function()
-                if not db.compactMode and not db.transparentMode then
-                    db.compactMode = true
-                    db.transparentMode = false
-                elseif db.compactMode and not db.transparentMode then
-                    db.compactMode = false
-                    db.transparentMode = true
-                else
-                    db.compactMode = false
-                    db.transparentMode = false
-                end
-                UpdateCompactText()
-                if module.UpdateSettings then module:UpdateSettings() end
-            end)
-
-            -- Toggle: Grow Up/Down
-            local growBtn = CreateStyledButton(content, "", 120, 24)
-            growBtn:SetPoint("TOPLEFT", compactBtn, "TOPRIGHT", 10, 0)
-
-            local function UpdateGrowText()
-                if db.growUp then
-                    growBtn:SetText("Grow Up")
-                    growBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
-                else
-                    growBtn:SetText("Grow Down")
-                    growBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
-                end
-            end
-            UpdateGrowText()
-
-            growBtn:SetScript("OnClick", function()
-                db.growUp = not db.growUp
-                UpdateGrowText()
-                if module.UpdateSettings then module:UpdateSettings() end
-            end)
-
-            -- Reset Button Handler
-            resetBtn:SetScript("OnClick", function()
-                if module.ResetDefaults then
-                    module:ResetDefaults()
-
-                    -- Refresh visuals manually
-                    if xSlider and xSlider.UpdateVisuals then
-                        local sw = UIParent:GetWidth()
-                        local val = math.floor((db.offsetX / sw) * 100 + 0.5)
-                        xSlider.UpdateVisuals(val)
-                    end
-                    if ySlider and ySlider.UpdateVisuals then
-                        local sh = UIParent:GetHeight()
-                        local val = math.floor((db.offsetY / sh) * 100 + 0.5)
-                        ySlider.UpdateVisuals(val)
-                    end
-                    UpdateCompactText()
-                    UpdateGrowText()
-                end
-            end)
-
-    -- Loot Announcer Section
-    elseif moduleName == "Loot Announcer" then
         local yStart = -80
-        if not whisperDB.lootAnnouncer then whisperDB.lootAnnouncer = { offsetX = 20, offsetY = 300, soundEnabled = true } end
-        local db = whisperDB.lootAnnouncer
-
-        -- Ensure default exists if they had an older version
-        if db.soundEnabled == nil then db.soundEnabled = true end
+        local db = whisperDB.keystones
 
         -- TEST BUTTON
         local testBtn = CreateStyledButton(content, "Test", 80, 24)
@@ -569,12 +407,12 @@ local function CreateModuleContent(parent, moduleName, module)
 
         module.testButton = testBtn
 
-        -- RESET BUTTON
+        -- Reset Button
         local resetBtn = CreateStyledButton(content, "Reset", 80, 24)
         resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
         resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
 
-        -- X Offset Slider (Percentage based)
+        -- Sliders
         local xSlider = CreateCustomSlider(content, "X Offset", -50, 50, 1,
             function()
                 local sw = UIParent:GetWidth()
@@ -589,7 +427,6 @@ local function CreateModuleContent(parent, moduleName, module)
         )
         xSlider:SetPoint("TOPLEFT", 0, yStart)
 
-        -- Y Offset Slider (Percentage based)
         local ySlider = CreateCustomSlider(content, "Y Offset", -50, 50, 1,
             function()
                 local sh = UIParent:GetHeight()
@@ -604,7 +441,137 @@ local function CreateModuleContent(parent, moduleName, module)
         )
         ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
 
-        -- Sound Alert Toggle Button
+        local compactBtn = CreateStyledButton(content, "", 140, 24)
+        compactBtn:SetPoint("TOPLEFT", 0, yStart - 120)
+
+        local function UpdateCompactText()
+            if db.transparentMode then
+                compactBtn:SetText("Style: Transparent")
+                compactBtn:GetFontString():SetTextColor(unpack(COLOR_CYAN))
+            elseif db.compactMode then
+                compactBtn:SetText("Style: Compact")
+                compactBtn:GetFontString():SetTextColor(1, 0.4, 0.8)
+            else
+                compactBtn:SetText("Style: Default")
+                compactBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
+            end
+        end
+        UpdateCompactText()
+
+        compactBtn:SetScript("OnClick", function()
+            if not db.compactMode and not db.transparentMode then
+                db.compactMode = true
+                db.transparentMode = false
+            elseif db.compactMode and not db.transparentMode then
+                db.compactMode = false
+                db.transparentMode = true
+            else
+                db.compactMode = false
+                db.transparentMode = false
+            end
+            UpdateCompactText()
+            if module.UpdateSettings then module:UpdateSettings() end
+        end)
+
+        local growBtn = CreateStyledButton(content, "", 120, 24)
+        growBtn:SetPoint("TOPLEFT", compactBtn, "TOPRIGHT", 10, 0)
+
+        local function UpdateGrowText()
+            if db.growUp then
+                growBtn:SetText("Grow Up")
+                growBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
+            else
+                growBtn:SetText("Grow Down")
+                growBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
+            end
+        end
+        UpdateGrowText()
+
+        growBtn:SetScript("OnClick", function()
+            db.growUp = not db.growUp
+            UpdateGrowText()
+            if module.UpdateSettings then module:UpdateSettings() end
+        end)
+
+        resetBtn:SetScript("OnClick", function()
+            if module.ResetDefaults then
+                module:ResetDefaults()
+                if xSlider and xSlider.UpdateVisuals then
+                    local sw = UIParent:GetWidth()
+                    local val = math.floor((db.offsetX / sw) * 100 + 0.5)
+                    xSlider.UpdateVisuals(val)
+                end
+                if ySlider and ySlider.UpdateVisuals then
+                    local sh = UIParent:GetHeight()
+                    local val = math.floor((db.offsetY / sh) * 100 + 0.5)
+                    ySlider.UpdateVisuals(val)
+                end
+                UpdateCompactText()
+                UpdateGrowText()
+            end
+        end)
+
+    elseif moduleName == "Loot Announcer" then
+        local yStart = -80
+        if not whisperDB.lootAnnouncer then whisperDB.lootAnnouncer = { offsetX = 20, offsetY = 300, soundEnabled = true } end
+        local db = whisperDB.lootAnnouncer
+
+        if db.soundEnabled == nil then db.soundEnabled = true end
+
+        local testBtn = CreateStyledButton(content, "Test", 80, 24)
+        testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
+
+        local function UpdateTestText()
+            if module.isTestMode then
+                testBtn:SetText("End")
+                testBtn:GetFontString():SetTextColor(unpack(COLOR_RED))
+            else
+                testBtn:SetText("Test")
+                testBtn:GetFontString():SetTextColor(1, 1, 1)
+            end
+        end
+
+        testBtn:SetScript("OnClick", function()
+            if module.ToggleTestMode then
+                module:ToggleTestMode()
+                UpdateTestText()
+            end
+        end)
+
+        module.testButton = testBtn
+
+        local resetBtn = CreateStyledButton(content, "Reset", 80, 24)
+        resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
+        resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
+
+        local xSlider = CreateCustomSlider(content, "X Offset", -50, 50, 1,
+            function()
+                local sw = UIParent:GetWidth()
+                if sw == 0 then return 0 end
+                return math.floor((db.offsetX / sw) * 100 + 0.5)
+            end,
+            function(val)
+                local sw = UIParent:GetWidth()
+                db.offsetX = (val / 100) * sw
+                if module.UpdateSettings then module:UpdateSettings() end
+            end
+        )
+        xSlider:SetPoint("TOPLEFT", 0, yStart)
+
+        local ySlider = CreateCustomSlider(content, "Y Offset", -50, 50, 1,
+            function()
+                local sh = UIParent:GetHeight()
+                if sh == 0 then return 0 end
+                return math.floor((db.offsetY / sh) * 100 + 0.5)
+            end,
+            function(val)
+                local sh = UIParent:GetHeight()
+                db.offsetY = (val / 100) * sh
+                if module.UpdateSettings then module:UpdateSettings() end
+            end
+        )
+        ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
+
         local soundBtn = CreateStyledButton(content, "", 140, 24)
         soundBtn:SetPoint("TOPLEFT", 0, yStart - 120)
 
@@ -625,11 +592,9 @@ local function CreateModuleContent(parent, moduleName, module)
             if module.UpdateSettings then module:UpdateSettings() end
         end)
 
-        -- Reset Button Handler
         resetBtn:SetScript("OnClick", function()
             if module.ResetDefaults then
                 module:ResetDefaults()
-
                 if xSlider and xSlider.UpdateVisuals then
                     local sw = UIParent:GetWidth()
                     local val = math.floor((db.offsetX / sw) * 100 + 0.5)
@@ -644,10 +609,158 @@ local function CreateModuleContent(parent, moduleName, module)
             end
         end)
 
+    -- ESSENTIALS (Container for specific tracking sub-modules)
+    elseif moduleName == "Essentials" then
+        local yPos = -20 -- Pushed up since there is no master toggle
+
+        if not whisperDB.essentials then whisperDB.essentials = {} end
+
+        local subMods = {
+            {
+                name = "Raid Buffs & Consumables",
+                key = "Raid Buffs & Consumables",
+                description = "Tracks missing group buffs and personal consumables.",
+                instantToggle = true
+            },
+            {
+                name = "Combat Alerts",
+                key = "Combat Alerts",
+                description = "Provides visual alerts when entering and leaving combat.",
+                instantToggle = true
+            },
+        }
+
+        for index, sMod in ipairs(subMods) do
+            local subModule = module.subModules and module.subModules[sMod.key]
+            if subModule then
+                -- Title
+                local smName = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+                smName:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos)
+                smName:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
+                smName:SetText(sMod.name)
+                smName:SetTextColor(1, 1, 1)
+
+                -- Description
+                local smDesc = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+                smDesc:SetPoint("TOPLEFT", smName, "BOTTOMLEFT", 0, -6)
+                smDesc:SetWidth(400)
+                smDesc:SetJustifyH("LEFT")
+                smDesc:SetFont(Style.STANDARD_FONT, 12, "OUTLINE")
+                smDesc:SetTextColor(0.7, 0.7, 0.7)
+                smDesc:SetText(sMod.description)
+
+                -- Main Sub-Module Toggle
+                local smToggle = CreateStyledButton(content, "", 100, 24)
+
+                -- Load saved state
+                if whisperDB.essentials[sMod.key] ~= nil then
+                    subModule.enabled = whisperDB.essentials[sMod.key]
+                end
+
+                local function UpdateSMToggleText()
+                    if subModule.enabled ~= false then
+                        smToggle:SetText("ENABLED")
+                        smToggle:GetFontString():SetTextColor(unpack(COLOR_GREEN))
+                    else
+                        smToggle:SetText("DISABLED")
+                        smToggle:GetFontString():SetTextColor(unpack(COLOR_RED))
+                    end
+                end
+                UpdateSMToggleText()
+
+                smToggle:SetScript("OnClick", function()
+                    local newState = not (subModule.enabled ~= false)
+                    subModule.enabled = newState
+                    whisperDB.essentials[sMod.key] = newState
+
+                    if sMod.instantToggle then
+                        if newState and subModule.Init then
+                            subModule:Init()
+                        elseif not newState and subModule.Disable then
+                            subModule:Disable()
+                        end
+                    end
+                    UpdateSMToggleText()
+                end)
+
+                -- Test Button for Sub-Module
+                local testBtn = CreateStyledButton(content, "Test", 80, 24)
+
+                -- Layout: Placed directly under the description text
+                testBtn:SetPoint("TOPLEFT", smDesc, "BOTTOMLEFT", 0, -12)
+                smToggle:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
+
+                local function UpdateTestText()
+                    if subModule.isTesting then
+                        testBtn:SetText("End")
+                        testBtn:GetFontString():SetTextColor(unpack(COLOR_RED))
+                    else
+                        testBtn:SetText("Test")
+                        testBtn:GetFontString():SetTextColor(1, 1, 1)
+                    end
+                end
+                UpdateTestText()
+
+                testBtn:SetScript("OnClick", function()
+                    if subModule.ToggleTestMode then
+                        subModule:ToggleTestMode(not subModule.isTesting)
+                        UpdateTestText()
+                    end
+                end)
+                subModule.testButton = testBtn
+
+                -- Add Crosshair Toggle ONLY for Combat Alerts
+                if sMod.key == "Combat Alerts" then
+                    local chToggle = CreateStyledButton(content, "", 140, 24)
+                    chToggle:SetPoint("TOPLEFT", smToggle, "TOPRIGHT", 10, 0)
+
+                    local function UpdateCHToggleText()
+                        if subModule.showCrosshair then
+                            chToggle:SetText("Crosshair: ON")
+                            chToggle:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
+                        else
+                            chToggle:SetText("Crosshair: OFF")
+                            chToggle:GetFontString():SetTextColor(0.6, 0.6, 0.6)
+                        end
+                    end
+                    UpdateCHToggleText()
+
+                    chToggle:SetScript("OnClick", function()
+                        subModule.showCrosshair = not subModule.showCrosshair
+                        whisperDB.essentials["Combat Alerts_Crosshair"] = subModule.showCrosshair
+                        UpdateCHToggleText()
+
+                        -- Immediately apply or restore CVars if the parent module is enabled
+                        if subModule.enabled ~= false then
+                            if subModule.showCrosshair then
+                                if subModule.ApplyPRDOverrides then subModule:ApplyPRDOverrides() end
+                            else
+                                if subModule.RestorePRDCVars then subModule:RestorePRDCVars() end
+                                if subModule.crosshair then subModule.crosshair:Hide() end
+                            end
+                        end
+                    end)
+                end
+
+                yPos = yPos - 90 -- Accounts for the height of Name + Desc + Buttons
+
+                if index < #subMods then
+                    local separator = content:CreateTexture(nil, "ARTWORK")
+                    separator:SetTexture("Interface/Buttons/WHITE8X8")
+                    separator:SetVertexColor(0.3, 0.3, 0.3, 1)
+                    separator:SetHeight(1)
+                    separator:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos + 6)
+                    separator:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yPos + 6)
+
+                    yPos = yPos - 15
+                end
+            end
+        end
+
     elseif moduleName == "Utilities" then
         local yPos = -15
 
-        -- Define utilities list with their info
+        -- Define utilities list
         local utilities = {
             {
                 name = "Auto Queue",
@@ -669,7 +782,6 @@ local function CreateModuleContent(parent, moduleName, module)
             },
         }
 
-        -- Check if we have any utilities
         if #utilities == 0 then
             local emptyText = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
             emptyText:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos)
@@ -677,19 +789,16 @@ local function CreateModuleContent(parent, moduleName, module)
             emptyText:SetTextColor(0.6, 0.6, 0.6)
             emptyText:SetText("No utility modules available")
         else
-            -- Create each utility entry
             for index, util in ipairs(utilities) do
                 local utilModule = whisper.modules[util.moduleName]
 
                 if utilModule then
-                    -- Utility name (left side)
                     local utilName = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
                     utilName:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos)
                     utilName:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
                     utilName:SetText(util.name)
                     utilName:SetTextColor(1, 1, 1)
 
-                    -- Toggle button (right side, vertically centered between name and description)
                     local utilToggle = CreateStyledButton(content, "", 100, 24)
                     utilToggle:SetPoint("TOPRIGHT", content, "TOPRIGHT", -10, yPos - 24)
 
@@ -717,14 +826,11 @@ local function CreateModuleContent(parent, moduleName, module)
                             end
                         end
 
-                        -- Link the Log module strictly to the Mail module's state
                         if util.moduleName == "Mail" then
                             local logMod = whisper.modules["Log"]
                             if logMod then
                                 logMod.enabled = newState
                                 whisperDB.modules["Log"] = newState
-
-                                -- Instantly toggle Log as well
                                 if util.instantToggle then
                                     if newState and logMod.Init then
                                         logMod:Init()
@@ -734,11 +840,9 @@ local function CreateModuleContent(parent, moduleName, module)
                                 end
                             end
                         end
-
                         UpdateUtilToggleText()
                     end)
 
-                    -- Description (below name)
                     local utilDesc = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
                     utilDesc:SetPoint("TOPLEFT", utilName, "BOTTOMLEFT", 0, -8)
                     utilDesc:SetWidth(400)
@@ -749,7 +853,6 @@ local function CreateModuleContent(parent, moduleName, module)
 
                     yPos = yPos - 60
 
-                    -- Add separator line (except for the last one)
                     if index < #utilities then
                         local separator = content:CreateTexture(nil, "ARTWORK")
                         separator:SetTexture("Interface/Buttons/WHITE8X8")
@@ -764,9 +867,12 @@ local function CreateModuleContent(parent, moduleName, module)
             end
         end
     else
-        -- No module-specific settings for other modules
         local desc = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        desc:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -20)
+        if toggleBtn then
+            desc:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -20)
+        else
+            desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -20)
+        end
         desc:SetWidth(400)
         desc:SetJustifyH("LEFT")
         desc:SetFont(Style.STANDARD_FONT, 12, "OUTLINE")
@@ -840,10 +946,20 @@ local function CreateConfigFrame()
         for name, module in pairs(whisper.modules) do
             if module.isTestMode and module.ToggleTestMode then
                 module:ToggleTestMode()
-                -- Reset test button to original state
                 if module.testButton then
                     module.testButton:SetText("Test")
                     module.testButton:GetFontString():SetTextColor(1, 1, 1)
+                end
+            end
+            if module.subModules then
+                for subName, subMod in pairs(module.subModules) do
+                    if subMod.isTesting and subMod.ToggleTestMode then
+                        subMod:ToggleTestMode(false)
+                        if subMod.testButton then
+                            subMod.testButton:SetText("Test")
+                            subMod.testButton:GetFontString():SetTextColor(1, 1, 1)
+                        end
+                    end
                 end
             end
         end
@@ -858,14 +974,23 @@ local function CreateConfigFrame()
     tex:SetPoint("CENTER")
     closeBtn.Texture = tex
     closeBtn:SetScript("OnClick", function()
-        -- Turn off test mode if active
         for name, module in pairs(whisper.modules) do
             if module.isTestMode and module.ToggleTestMode then
                 module:ToggleTestMode()
-                -- Reset test button to original state
                 if module.testButton then
                     module.testButton:SetText("Test")
                     module.testButton:GetFontString():SetTextColor(1, 1, 1)
+                end
+            end
+            if module.subModules then
+                for subName, subMod in pairs(module.subModules) do
+                    if subMod.isTesting and subMod.ToggleTestMode then
+                        subMod:ToggleTestMode(false)
+                        if subMod.testButton then
+                            subMod.testButton:SetText("Test")
+                            subMod.testButton:GetFontString():SetTextColor(1, 1, 1)
+                        end
+                    end
                 end
             end
         end
@@ -899,15 +1024,14 @@ local function CreateConfigFrame()
     local yOffset = -40
     local sortedNames = {}
 
-    -- Define utility modules (these will be hidden from sidebar and shown in Utilities panel)
+    -- Utilities hidden from sidebar
     local utilityModules = {
         ["Auto Queue"] = true,
         ["Quest Cleaner"] = true,
         ["Mail"] = true,
-        ["Log"] = true, -- Excludes Log from rendering in the sidebar
+        ["Log"] = true,
     }
 
-    -- Add non-utility modules to sidebar
     for name in pairs(whisper.modules) do
         if not utilityModules[name] then
             tinsert(sortedNames, name)
@@ -915,26 +1039,33 @@ local function CreateConfigFrame()
     end
     table_sort(sortedNames)
 
-    -- Add Utilities as a virtual module at the end
     tinsert(sortedNames, "Utilities")
     for _, name in ipairs(sortedNames) do
         local module = whisper.modules[name]
-
-        -- Check if the module has a displayName, otherwise fall back to the raw name
         local dName = (module and module.displayName) and module.displayName or name
 
         local btn = CreateModuleButton(sidebar, dName, SIDEBAR_WIDTH, 32)
         btn:SetPoint("TOPLEFT", 0, yOffset)
 
-        -- SAFETY CLEANUP: Disable any active tests when switching tabs
         btn:SetScript("OnClick", function(self)
-            -- Turn off test modes from other modules
+            -- Turn off test modes from other tabs to keep UI clean
             for modName, mod in pairs(whisper.modules) do
                 if mod.isTestMode and mod.ToggleTestMode then
                     mod:ToggleTestMode()
                     if mod.testButton then
                         mod.testButton:SetText("Test")
                         mod.testButton:GetFontString():SetTextColor(1, 1, 1)
+                    end
+                end
+                if mod.subModules then
+                    for subName, subMod in pairs(mod.subModules) do
+                        if subMod.isTesting and subMod.ToggleTestMode then
+                            subMod:ToggleTestMode(false)
+                            if subMod.testButton then
+                                subMod.testButton:SetText("Test")
+                                subMod.testButton:GetFontString():SetTextColor(1, 1, 1)
+                            end
+                        end
                     end
                 end
             end
@@ -1004,14 +1135,23 @@ function whisper:OpenSettings(forceShow)
         configFrame:Raise()
     else
         if configFrame:IsShown() then
-            -- Turn off test mode if active when closing
             for name, module in pairs(whisper.modules) do
                 if module.isTestMode and module.ToggleTestMode then
                     module:ToggleTestMode()
-                    -- Reset test button to original state
                     if module.testButton then
                         module.testButton:SetText("Test")
                         module.testButton:GetFontString():SetTextColor(1, 1, 1)
+                    end
+                end
+                if module.subModules then
+                    for subName, subMod in pairs(module.subModules) do
+                        if subMod.isTesting and subMod.ToggleTestMode then
+                            subMod:ToggleTestMode(false)
+                            if subMod.testButton then
+                                subMod.testButton:SetText("Test")
+                                subMod.testButton:GetFontString():SetTextColor(1, 1, 1)
+                            end
+                        end
                     end
                 end
             end

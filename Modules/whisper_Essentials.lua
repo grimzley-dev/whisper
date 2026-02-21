@@ -319,7 +319,7 @@ RaidBuffs.CLASS_DB = {
         { checkType = "targeted", spellIDs = { 974 }, specFilter = { 264 } }
     },
     ["PALADIN"] = {
-        { checkType = "aura", spellIDs = { 183435, 317920, 465 } }, -- Base Auras
+        { checkType = "aura", spellIDs = { 465, 317920, 32223 } }, -- Base Auras (Devotion is now the base icon)
         { checkType = "targeted", spellIDs = { 53563, 156910, 200025 }, specFilter = { 65 } } -- Holy Paladin Beacons
     },
 }
@@ -334,12 +334,12 @@ RaidBuffs.CONSUMABLES = {
     {
         key = "Flask",
         checkType = "aura",
-        spellIDs = { 431971, 431973, 431974, 431975, 431976 }, -- TWW Flasks
+        spellIDs = { 431971, 431972, 431973, 431974, 431975, 431976, 432021 }, -- TWW Flasks
     },
     {
         key = "Augment Rune",
         checkType = "aura",
-        spellIDs = { 432470, 1234969, 1242347 },
+        spellIDs = { 1234969, 1242347 },
     },
     {
         key = "Mana Oil",
@@ -350,7 +350,7 @@ RaidBuffs.CONSUMABLES = {
     {
         key = "Whetstone",
         checkType = "weaponEnchant",
-        itemID = 222504, -- Ironclaw Whetstone
+        itemIDs = { 222504, 222510 }, -- Ironclaw Whetstone & Weightstone
         playerFilter = UsesWhetstone,
     },
     {
@@ -435,12 +435,43 @@ function RaidBuffs:UpdateDisplay()
 end
 
 function RaidBuffs:RunTestMode()
-    -- Show demo of regular missing buff, expiring buff, and missing consumables
-    self:AddIcon(GetCachedSpellTexture(1459))
-    self:AddIcon(GetCachedSpellTexture(21562))
-    self:AddIcon(136000)
-    self:AddIcon(GetCachedItemIcon(224107))
-    self:AddIcon(GetCachedItemIcon(188152))
+    -- 1. CLASS UTILITY BUFFS (Self & Targeted)
+    local classChecks = self.CLASS_DB[self.playerClass]
+    if classChecks then
+        for _, check in ipairs(classChecks) do
+            if IsPlayerEligible(check) then
+                local foundTex = nil
+                if check.checkType == "roguePoisons" then
+                    foundTex = GetCachedSpellTexture(315584) -- Default Instant Poison Icon
+                else
+                    foundTex = (check.itemIDs and GetCachedItemIcon(check.itemIDs[1])) or (check.itemID and GetCachedItemIcon(check.itemID)) or (check.spellIDs and GetCachedSpellTexture(check.spellIDs[1])) or check.icon
+                end
+                if foundTex then
+                    self:AddIcon(foundTex)
+                end
+            end
+        end
+    end
+
+    -- 2. CONSUMABLES (Food, Flasks, Healthstones, Runes, Generic Weapon Buffs)
+    for _, cons in ipairs(self.CONSUMABLES) do
+        if IsPlayerEligible(cons) then
+            local iconTex = (cons.itemIDs and GetCachedItemIcon(cons.itemIDs[1])) or (cons.itemID and GetCachedItemIcon(cons.itemID)) or (cons.spellIDs and GetCachedSpellTexture(cons.spellIDs[1])) or cons.iconID
+            if iconTex then
+                self:AddIcon(iconTex)
+            end
+        end
+    end
+
+    -- 3. RAID BUFFS
+    for _, info in ipairs(self.DB) do
+        if IsPlayerEligible(info) then
+            local texture = GetCachedSpellTexture(info.spellIDs[1])
+            if texture then
+                self:AddIcon(texture)
+            end
+        end
+    end
 end
 
 function RaidBuffs:CheckMissingBuffs()
@@ -461,7 +492,7 @@ function RaidBuffs:CheckMissingBuffs()
 
                     if count < (check.minRequired or 1) then
                         isMissing = true
-                        foundTex = check.itemID and GetCachedItemIcon(check.itemID) or (check.spellIDs and GetCachedSpellTexture(check.spellIDs[1])) or check.icon
+                        foundTex = (check.itemIDs and GetCachedItemIcon(check.itemIDs[1])) or (check.itemID and GetCachedItemIcon(check.itemID)) or (check.spellIDs and GetCachedSpellTexture(check.spellIDs[1])) or check.icon
                     end
                 elseif check.checkType == "aura" then
                     local has, remain = CheckAura("player", check.spellIDs, nil, false)
@@ -542,10 +573,22 @@ function RaidBuffs:CheckMissingBuffs()
                     isExpiring = true
                 end
             elseif cons.checkType == "item" then
-                if GetItemCount(cons.itemID) == 0 then
-                    isMissing = true
+                if cons.itemIDs then
+                    local hasAny = false
+                    for _, iID in ipairs(cons.itemIDs) do
+                        if GetItemCount(iID) > 0 then
+                            hasAny = true
+                            break
+                        end
+                    end
+                    if not hasAny then isMissing = true end
+                    iconTex = GetCachedItemIcon(cons.itemIDs[1])
+                else
+                    if GetItemCount(cons.itemID) == 0 then
+                        isMissing = true
+                    end
+                    iconTex = GetCachedItemIcon(cons.itemID)
                 end
-                iconTex = GetCachedItemIcon(cons.itemID)
             elseif cons.checkType == "aura" then
                 local has, remain = CheckAura("player", cons.spellIDs, nil, false)
                 if not has then
@@ -563,7 +606,7 @@ function RaidBuffs:CheckMissingBuffs()
                 end
 
                 if isMissing then
-                    iconTex = cons.itemID and GetCachedItemIcon(cons.itemID) or (cons.spellIDs and GetCachedSpellTexture(cons.spellIDs[1])) or cons.iconID
+                    iconTex = (cons.itemIDs and GetCachedItemIcon(cons.itemIDs[1])) or (cons.itemID and GetCachedItemIcon(cons.itemID)) or (cons.spellIDs and GetCachedSpellTexture(cons.spellIDs[1])) or cons.iconID
                 end
             end
 
@@ -716,6 +759,164 @@ function RaidBuffs:LayoutIcons()
             icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
         else
             icon:SetPoint("LEFT", self.activeIcons[i-1], "RIGHT", self.SPACING, 0)
+        end
+    end
+end
+
+-- =========================================================================
+-- SUB-MODULE: COMBAT ALERTS
+-- =========================================================================
+local CombatAlerts = {
+    enabled = true,
+    isTesting = false,
+    showCrosshair = true -- Toggle state for future config integration
+}
+Essentials.subModules["Combat Alerts"] = CombatAlerts
+
+function CombatAlerts:Init()
+    -- Load saved config states
+    if whisperDB and whisperDB.essentials and whisperDB.essentials["Combat Alerts_Crosshair"] ~= nil then
+        self.showCrosshair = whisperDB.essentials["Combat Alerts_Crosshair"]
+    end
+
+    -- Ensure the main text alert frame is created
+    if not self.frame then
+        self.frame = CreateFrame("Frame", "whisperCombatAlertsFrame", UIParent)
+        self.frame:SetSize(200, 50)
+        self.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+        self.frame:Hide()
+
+        self.text = self.frame:CreateFontString(nil, "OVERLAY")
+        self.text:SetPoint("CENTER")
+        self.text:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+        self.text:SetShadowColor(0, 0, 0, 0)
+        self.text:SetShadowOffset(0, 0)
+
+        self.animGroup = self.frame:CreateAnimationGroup()
+
+        local fadeIn = self.animGroup:CreateAnimation("Alpha")
+        fadeIn:SetFromAlpha(0)
+        fadeIn:SetToAlpha(1)
+        fadeIn:SetDuration(0.4)
+        fadeIn:SetOrder(1)
+
+        local hold = self.animGroup:CreateAnimation("Alpha")
+        hold:SetFromAlpha(1)
+        hold:SetToAlpha(1)
+        hold:SetDuration(1.7)
+        hold:SetOrder(2)
+
+        local fadeOut = self.animGroup:CreateAnimation("Alpha")
+        fadeOut:SetFromAlpha(1)
+        fadeOut:SetToAlpha(0)
+        fadeOut:SetDuration(0.4)
+        fadeOut:SetOrder(3)
+
+        self.animGroup:SetScript("OnFinished", function()
+            if not self.isTesting then
+                self.frame:Hide()
+            end
+        end)
+    end
+
+    -- Ensure the crosshair frame is created
+    if not self.crosshair then
+        local ch = CreateFrame("Frame", "whisperCombatCrosshair", UIParent)
+        ch:SetSize(25, 25)
+        ch:SetFrameStrata("HIGH")
+        ch:SetPoint("CENTER", UIParent, "CENTER", 0, -30)
+
+        local hBorder = ch:CreateTexture(nil, "BACKGROUND")
+        hBorder:SetColorTexture(0, 0, 0, 1)
+        hBorder:SetSize(20, 5)
+        hBorder:SetPoint("CENTER")
+
+        local vBorder = ch:CreateTexture(nil, "BACKGROUND")
+        vBorder:SetColorTexture(0, 0, 0, 1)
+        vBorder:SetSize(5, 20)
+        vBorder:SetPoint("CENTER")
+
+        local hFill = ch:CreateTexture(nil, "ARTWORK")
+        hFill:SetColorTexture(1, 1, 1, 0.8)
+        hFill:SetSize(18, 3)
+        hFill:SetPoint("CENTER")
+
+        local vFill = ch:CreateTexture(nil, "ARTWORK")
+        vFill:SetColorTexture(1, 1, 1, 0.8)
+        vFill:SetSize(3, 18)
+        vFill:SetPoint("CENTER")
+
+        ch:Hide()
+        self.crosshair = ch
+    end
+
+    self.frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    self.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+
+    self.frame:SetScript("OnEvent", function(_, event)
+        if self.isTesting then return end
+        self:TriggerAlert(event == "PLAYER_REGEN_DISABLED")
+    end)
+end
+
+function CombatAlerts:TriggerAlert(entering)
+    self.animGroup:Stop()
+    if entering then
+        self.text:SetText("+Combat")
+        self.text:SetTextColor(1, 1, 1, 1) -- White
+        if self.showCrosshair then
+            self.crosshair:Show()
+        end
+    else
+        self.text:SetText("-Combat")
+        self.text:SetTextColor(0.6, 0.6, 0.6, 1) -- Grey Shade
+        if self.crosshair then
+            self.crosshair:Hide()
+        end
+    end
+    self.frame:SetAlpha(0)
+    self.frame:Show()
+    self.animGroup:Play()
+end
+
+function CombatAlerts:Disable()
+    if self.frame then
+        self.frame:UnregisterAllEvents()
+        self.frame:Hide()
+        self.animGroup:Stop()
+    end
+    if self.crosshair then
+        self.crosshair:Hide()
+    end
+end
+
+function CombatAlerts:ToggleTestMode(state)
+    self.isTesting = state
+    if self.isTesting then
+        if not self.frame then self:Init() end
+        self.frame:UnregisterEvent("PLAYER_REGEN_DISABLED")
+        self.frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        self.animGroup:Stop()
+
+        self.text:SetText("+Combat")
+        self.text:SetTextColor(1, 1, 1, 1)
+        self.frame:SetAlpha(1)
+        self.frame:Show()
+
+        if self.showCrosshair and self.crosshair then
+            self.crosshair:Show()
+        end
+    else
+        if self.frame then
+            self.frame:Hide()
+            self.frame:SetAlpha(0)
+            if self.enabled then
+                self.frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+                self.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            end
+        end
+        if self.crosshair then
+            self.crosshair:Hide()
         end
     end
 end
