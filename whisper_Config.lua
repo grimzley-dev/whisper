@@ -723,7 +723,7 @@ local function CreateModuleContent(parent, moduleName, module)
                     local subMods = {
                         { name = "Raid Buffs & Consumables", key = "Raid Buffs & Consumables", description = "Tracks missing group buffs and personal consumables.", instantToggle = true },
                         { name = "Combat Alerts", key = "Combat Alerts", description = "Provides visual alerts when entering and leaving combat.", instantToggle = true },
-                        { name = "Power Infusion Helper", key = "Power Infusion Helper", description = "Alerts you when a specific player whispers 'PI me'.", instantToggle = true },
+                        { name = "Power Infusion Helper", key = "Power Infusion Helper", description = "Alerts you when a specific player requests PI.", instantToggle = true },
                     }
 
                     for index, sMod in ipairs(subMods) do

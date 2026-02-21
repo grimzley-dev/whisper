@@ -834,32 +834,54 @@ local PIHelper = {
     enabled = true,
     isTesting = false,
     lastSoundTime = 0,
-    -- Path to your custom media
+    lastWhisperTime = {},
     soundPath = "Interface\\AddOns\\whisper\\Media\\whisperPI.mp3"
 }
 Essentials.subModules["Power Infusion Helper"] = PIHelper
 
+-- Internal helper to HARD strip realm names
+local function GetNameOnly(fullName)
+    if not fullName then return "Unknown" end
+    local name = strsplit("-", fullName)
+    return name
+end
+
 function PIHelper:Init()
-    -- 1. PRIEST CHECK: Only run if the player is a Priest
     local _, class = UnitClass("player")
     if class ~= "PRIEST" then return end
 
-    self.frame = CreateFrame("Frame")
+    self.frame = self.frame or CreateFrame("Frame")
     self.frame:RegisterEvent("CHAT_MSG_WHISPER")
     self.frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
     self.frame:SetScript("OnEvent", function(_, event, ...)
         if event == "CHAT_MSG_WHISPER" then
-            local text, playerName = ...
+            local text, sender = ...
+            if not text or not sender then return end
 
-            -- 2. TARGET FILTERING
-            -- We look for 'piTarget' in your global whisperDB
             local selectedTarget = whisperDB and whisperDB.piTarget
+            local msg = text:lower()
 
-            if text and text:lower():match("^pi me") then
-                -- Allow if no target is selected ("None") OR if sender matches target
-                if not selectedTarget or selectedTarget == "None" or playerName == selectedTarget then
-                    self:ProcessPIRequest(playerName)
+            if msg:match("^pi me") then
+                -- Guard: If target is "None", ignore everyone silently
+                if not selectedTarget or selectedTarget == "None" then return end
+
+                -- Force strip realm names for logic and display
+                local shortSender = GetNameOnly(sender)
+                local shortTarget = GetNameOnly(selectedTarget)
+
+                if shortSender == shortTarget then
+                    -- Recognized target, trigger the screen alert
+                    self:ProcessPIRequest(sender)
+                else
+                    -- Unauthorized player, send the clean whisper-back
+                    local currentTime = GetTime()
+                    if not self.lastWhisperTime[shortSender] or (currentTime - self.lastWhisperTime[shortSender] > 30) then
+                        -- Format: "I'm not tracking you for PI (Current Target: Name)"
+                        local whisperMsg = "I'm not tracking you for PI (Current Target: " .. shortTarget .. ")"
+                        SendChatMessage(whisperMsg, "WHISPER", nil, sender)
+                        self.lastWhisperTime[shortSender] = currentTime
+                    end
                 end
             end
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -878,7 +900,8 @@ function PIHelper:ProcessPIRequest(playerName)
     if not (CombatAlerts and CombatAlerts.frame) then return end
 
     local currentTime = GetTime()
-    local nameOnly = strsplit("-", playerName)
+    -- HARD STRIP REALM NAME
+    local nameOnly = GetNameOnly(playerName)
 
     -- 1. SPAM PROTECTED CUSTOM SOUND
     if (currentTime - self.lastSoundTime) > 5 then
@@ -888,33 +911,29 @@ function PIHelper:ProcessPIRequest(playerName)
 
     -- 2. TEXT DISPLAY LOGIC
     local _, classTag = UnitClass(nameOnly)
+    -- Fallback for self-testing or cross-realm unit lookups
+    if not classTag then
+        -- Try looking up the original playerName (with realm) if the short name fails
+        _, classTag = UnitClass(playerName)
+    end
+
     local color = (classTag and RAID_CLASS_COLORS[classTag]) or {r=1, g=1, b=1}
     local hex = string.format("ff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
 
     CombatAlerts.animGroup:Stop()
+    -- Displays only the clean name
     CombatAlerts.text:SetText("Power Infusion on |c" .. hex .. nameOnly .. "|r")
     CombatAlerts.text:SetTextColor(1, 1, 1)
 
     -- 3. ANIMATION OVERRIDE
-    if CombatAlerts.animGroup:GetAnimations() then
-        local animations = {CombatAlerts.animGroup:GetAnimations()}
-        for _, anim in ipairs(animations) do
-            if anim.SetStartDelay and anim:GetOrder() == 3 then
-                anim:SetStartDelay(8)
-            end
+    local animations = {CombatAlerts.animGroup:GetAnimations()}
+    for _, anim in ipairs(animations) do
+        if anim:GetOrder() == 2 then
+            anim:SetDuration(8)
         end
     end
 
     CombatAlerts.frame:SetAlpha(1)
     CombatAlerts.frame:Show()
     CombatAlerts.animGroup:Play()
-end
-
-function PIHelper:Disable()
-    if self.frame then self.frame:UnregisterAllEvents() end
-end
-
-function PIHelper:ToggleTestMode(state)
-    self.isTesting = state
-    if state then self:ProcessPIRequest(UnitName("player")) end
 end
