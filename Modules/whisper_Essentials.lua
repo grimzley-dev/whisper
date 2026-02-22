@@ -1061,6 +1061,7 @@ function PIHelper:Disable()
         self.frame:UnregisterAllEvents()
     end
 
+
     -- If they click disable while testing, kill the test mode immediately
     if self.isTesting then
         self:ToggleTestMode(false)
