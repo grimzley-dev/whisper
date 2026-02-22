@@ -373,32 +373,72 @@ local function HandleRaidMessage(message)
 end
 
 function LootAnnouncer:Init()
+    self.enabled = true
     if not whisperDB.lootAnnouncer then whisperDB.lootAnnouncer = {} end
     local db = whisperDB.lootAnnouncer
     local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
 
     if db.offsetX == nil then db.offsetX = (10 / 100) * sw end
     if db.offsetY == nil then db.offsetY = (10 / 100) * sh end
-    if db.soundEnabled == nil then db.soundEnabled = true end -- Ensure default state exists
+    if db.soundEnabled == nil then db.soundEnabled = true end
 
     CreateInterface()
     UpdateContainerPosition()
+    if containerFrame then containerFrame:Show() end
 
-    eventFrame = CreateFrame("Frame")
+    -- Safe Event Registration
+    if not eventFrame then
+        eventFrame = CreateFrame("Frame")
+        eventFrame:SetScript("OnEvent", function(_, event, msg)
+            HandleRaidMessage(msg)
+        end)
+    end
     eventFrame:RegisterEvent("CHAT_MSG_RAID")
     eventFrame:RegisterEvent("CHAT_MSG_RAID_LEADER")
-    eventFrame:SetScript("OnEvent", function(_, event, msg)
-        HandleRaidMessage(msg)
-    end)
 
-    C_Timer.NewTicker(1, function()
-        local now = GetTime()
-        for key, frame in pairs(stateByKey) do
-            if frame.expirationTime and now >= frame.expirationTime then
-                LootAnnouncer:RemoveAnnouncement(key)
+    -- Safe Ticker Creation
+    if not self.expirationTicker then
+        self.expirationTicker = C_Timer.NewTicker(1, function()
+            local now = GetTime()
+            for key, frame in pairs(stateByKey) do
+                if frame.expirationTime and now >= frame.expirationTime then
+                    LootAnnouncer:RemoveAnnouncement(key)
+                end
             end
-        end
-    end)
+        end)
+    end
+end
+
+function LootAnnouncer:Disable()
+    self.enabled = false
+
+    -- 1. Stop listening for chat messages immediately
+    if eventFrame then
+        eventFrame:UnregisterAllEvents()
+    end
+
+    -- 2. Stop the expiration loop
+    if self.expirationTicker then
+        self.expirationTicker:Cancel()
+        self.expirationTicker = nil
+    end
+
+    -- 3. Kill Test Mode if they disabled the module while testing
+    if self.isTestMode then
+        self:ToggleTestMode()
+    end
+
+    -- 4. Hide the frame and sweep all current visual notifications away
+    if containerFrame then
+        containerFrame:Hide()
+    end
+
+    for i = #activeAnnouncements, 1, -1 do
+        local frame = activeAnnouncements[i]
+        frame:Hide()
+        stateByKey[frame.key] = nil
+        table.remove(activeAnnouncements, i)
+    end
 end
 
 function LootAnnouncer:ToggleTestMode()

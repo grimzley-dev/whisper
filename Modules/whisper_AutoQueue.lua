@@ -7,16 +7,14 @@ whisper:RegisterModule("Auto Queue", AutoQueue)
 -- Locals
 -- =========================
 local CompleteLFGRoleCheck = CompleteLFGRoleCheck
-
--- State
 local isActive = true
+local eventFrame
 
 -- =========================
 -- Core Functionality
 -- =========================
 local function AcceptRoleCheck()
     if not AutoQueue.enabled or not isActive then return end
-
     CompleteLFGRoleCheck(true)
 end
 
@@ -33,31 +31,31 @@ function AutoQueue:IsActive()
 end
 
 -- =========================
--- Event Handling
--- =========================
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("LFG_ROLE_CHECK_SHOW")
-
-eventFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "LFG_ROLE_CHECK_SHOW" then
-        AcceptRoleCheck()
-    end
-end)
-
--- =========================
--- Initialization
+-- Initialization & Toggling
 -- =========================
 function AutoQueue:Init()
-    -- Initialize DB defaults
-    whisperDB.autoQueue = whisperDB.autoQueue or {
-        active = true
-    }
-
-    -- Load saved state
+    self.enabled = true
+    whisperDB.autoQueue = whisperDB.autoQueue or { active = true }
     isActive = whisperDB.autoQueue.active
+
+    if not eventFrame then
+        eventFrame = CreateFrame("Frame")
+        eventFrame:SetScript("OnEvent", function(self, event, ...)
+            if event == "LFG_ROLE_CHECK_SHOW" then
+                AcceptRoleCheck()
+            end
+        end)
+    end
+
+    -- Only register the event when the module is actually initialized/enabled
+    eventFrame:RegisterEvent("LFG_ROLE_CHECK_SHOW")
 end
 
 function AutoQueue:Disable()
     self.enabled = false
     isActive = false
+    -- Stop listening to the game entirely to save processing power
+    if eventFrame then
+        eventFrame:UnregisterAllEvents()
+    end
 end

@@ -350,7 +350,7 @@ local function CreateModuleContent(parent, moduleName, module)
         limitSlider:SetPoint("TOPLEFT", 0, yStart - 120)
         sliderRefs.limitSlider = limitSlider
 
-        local growBtn = CreateStyledButton(content, "", 100, 24)
+        local growBtn = CreateStyledButton(content, "", 140, 24)
         growBtn:SetPoint("TOPLEFT", 0, yStart - 180)
 
         local function UpdateGrowText()
@@ -473,7 +473,7 @@ local function CreateModuleContent(parent, moduleName, module)
             if module.UpdateSettings then module:UpdateSettings() end
         end)
 
-        local growBtn = CreateStyledButton(content, "", 120, 24)
+        local growBtn = CreateStyledButton(content, "", 140, 24)
         growBtn:SetPoint("TOPLEFT", compactBtn, "TOPRIGHT", 10, 0)
 
         local function UpdateGrowText()
@@ -577,10 +577,10 @@ local function CreateModuleContent(parent, moduleName, module)
 
         local function UpdateSoundText()
             if db.soundEnabled then
-                soundBtn:SetText("Sound Alert: On")
+                soundBtn:SetText("Sound Alert: ON")
                 soundBtn:GetFontString():SetTextColor(unpack(COLOR_PURPLE))
             else
-                soundBtn:SetText("Sound Alert: Off")
+                soundBtn:SetText("Sound Alert: OFF")
                 soundBtn:GetFontString():SetTextColor(0.6, 0.6, 0.6)
             end
         end
@@ -610,205 +610,293 @@ local function CreateModuleContent(parent, moduleName, module)
         end)
 
     -- ESSENTIALS (Container for specific tracking sub-modules)
-        elseif moduleName == "Essentials" then
-            local yPos = -20
+    elseif moduleName == "Essentials" then
+        local yPos = -20
 
-            if not whisperDB.essentials then whisperDB.essentials = {} end
+        if not whisperDB.essentials then whisperDB.essentials = {} end
 
-            -- Helper to get class-colored names
-            local function GetClassColoredName(unit)
-                local name, realm = UnitName(unit)
-                if not name then return nil end
-                local _, class = UnitClass(unit)
-                local color = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[class]
-                local full = (realm and realm ~= "") and (name.."-"..realm) or name
-                return string.format("|cff%02x%02x%02x%s|r", color.r*255, color.g*255, color.b*255, full), full
-            end
+        -- Helper to get class-colored names with smart realm display
+        local function GetClassColoredName(unit, nameCounts)
+            local name, realm = UnitName(unit)
+            if not name then return nil end
+            local _, class = UnitClass(unit)
+            local color = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[class] or {r=1, g=1, b=1}
 
-            local function GetGroupMembers()
-                local members = { {text = "None", value = "None"} }
-                local num = GetNumGroupMembers()
-                if num > 0 then
-                    local prefix = IsInRaid() and "raid" or "party"
-                    for i = 1, num do
-                        local colored, raw = GetClassColoredName(prefix..i)
-                        if raw then
-                            tinsert(members, {text = colored, value = raw})
-                        end
-                    end
+            -- Only show realm if there are multiple people with this exact character name
+            local displayName = name
+            if nameCounts and nameCounts[name] and nameCounts[name] > 1 then
+                if realm and realm ~= "" then
+                    displayName = name .. "-" .. realm
                 end
-                return members
             end
 
-            -- NEW Styled Dropdown to match config buttons
-                    local function CreateCustomDropdown(parent, width, height, getFunc, setFunc)
-                        local btn = CreateStyledButton(parent, getFunc() or "None", width, height)
+            local raw = (realm and realm ~= "") and (name.."-"..realm) or name
+            local colored = string.format("|cff%02x%02x%02x%s|r", color.r*255, color.g*255, color.b*255, displayName)
+            return colored, raw
+        end
 
-                        local function RefreshDisplay()
-                            local current = getFunc()
-                            if current == "None" or not IsInGroup() then
-                                btn:SetText(current)
-                            else
-                                local found = false
-                                local list = GetGroupMembers()
-                                for _, data in ipairs(list) do
-                                    if data.value == current then
-                                        btn:SetText(data.text)
-                                        found = true
-                                        break
-                                    end
-                                end
-                                if not found then btn:SetText(current) end
-                            end
+        -- Smart scanner that calculates duplicates
+        local function GetGroupMembers()
+            local members = { {text = "None", value = "None"} }
+            local num = GetNumGroupMembers()
+            if num > 0 then
+                local prefix = IsInRaid() and "raid" or "party"
+                local counts = {}
+
+                -- First Pass: Count character names
+                for i = 1, num do
+                    local n = UnitName(prefix..i)
+                    if n then counts[n] = (counts[n] or 0) + 1 end
+                end
+
+                -- Second Pass: Build colored list
+                for i = 1, num do
+                    local colored, raw = GetClassColoredName(prefix..i, counts)
+                    if raw then tinsert(members, {text = colored, value = raw}) end
+                end
+            end
+            return members
+        end
+
+        -- Styled Dropdown with Smooth Scrolling
+        local function CreateCustomDropdown(parent, width, height, getFunc, setFunc)
+            local btn = CreateStyledButton(parent, getFunc() or "None", width, height)
+
+            local function RefreshDisplay()
+                local current = getFunc()
+                if current == "None" or not IsInGroup() then
+                    btn:SetText(current)
+                else
+                    local found = false
+                    local list = GetGroupMembers()
+                    for _, data in ipairs(list) do
+                        if data.value == current then
+                            btn:SetText(data.text)
+                            found = true
+                            break
                         end
+                    end
+                    if not found then btn:SetText(current) end
+                end
+            end
+            RefreshDisplay()
+
+            btn:SetScript("OnClick", function(self)
+                if self.menu and self.menu:IsShown() then self.menu:Hide() return end
+
+                local menu = self.menu or CreateFrame("Frame", nil, self, "BackdropTemplate")
+                self.menu = menu
+                menu:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -1)
+                menu:SetFrameStrata("TOOLTIP")
+                menu:SetBackdrop(Style.Backdrop)
+                menu:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+                menu:SetBackdropBorderColor(0, 0, 0, 1)
+                menu:EnableMouseWheel(true)
+
+                -- Setup ScrollFrame
+                if not menu.scrollFrame then
+                    menu.scrollFrame = CreateFrame("ScrollFrame", nil, menu)
+                    menu.scrollFrame:SetPoint("TOPLEFT", 0, -5)
+                    menu.scrollFrame:SetPoint("BOTTOMRIGHT", 0, 5)
+
+                    menu.scrollChild = CreateFrame("Frame", nil, menu.scrollFrame)
+                    menu.scrollFrame:SetScrollChild(menu.scrollChild)
+
+                    -- Smooth Scroll Engine
+                    menu.targetScroll = 0
+                    menu.currentScroll = 0
+                    menu:SetScript("OnMouseWheel", function(frame, delta)
+                        local maxScroll = math.max(0, menu.scrollChild:GetHeight() - menu.scrollFrame:GetHeight())
+                        menu.targetScroll = menu.targetScroll - (delta * height * 2) -- Scroll 2 items at a time
+                        menu.targetScroll = math.max(0, math.min(maxScroll, menu.targetScroll))
+                    end)
+
+                    menu:SetScript("OnUpdate", function(frame, elapsed)
+                        if math.abs(frame.currentScroll - frame.targetScroll) > 0.5 then
+                            frame.currentScroll = frame.currentScroll + (frame.targetScroll - frame.currentScroll) * 15 * elapsed
+                            frame.scrollFrame:SetVerticalScroll(frame.currentScroll)
+                        else
+                            frame.currentScroll = frame.targetScroll
+                            frame.scrollFrame:SetVerticalScroll(frame.currentScroll)
+                        end
+                    end)
+                end
+
+                if menu.buttons then for _, b in pairs(menu.buttons) do b:Hide() end end
+                menu.buttons = menu.buttons or {}
+
+                local list = GetGroupMembers()
+                local MAX_ROWS = 8
+                local visibleRows = math.min(#list, MAX_ROWS)
+
+                -- Adjust sizes dynamically
+                menu:SetSize(width, visibleRows * height + 10)
+                menu.scrollFrame:SetSize(width, visibleRows * height)
+                menu.scrollChild:SetSize(width, #list * height)
+
+                -- Reset scroll position when opened
+                menu.targetScroll = 0
+                menu.currentScroll = 0
+                menu.scrollFrame:SetVerticalScroll(0)
+
+                for i, data in ipairs(list) do
+                    local opt = menu.buttons[i] or CreateFrame("Button", nil, menu.scrollChild, "BackdropTemplate")
+                    menu.buttons[i] = opt
+                    opt:SetSize(width - 10, height - 2)
+                    opt:SetPoint("TOPLEFT", 5, -((i-1) * height))
+                    opt:Show()
+
+                    opt:SetBackdrop(Style.Backdrop)
+                    opt:SetBackdropColor(0, 0, 0, 0)
+                    opt:SetBackdropBorderColor(0, 0, 0, 0)
+
+                    local text = opt.text or opt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+                    opt.text = text
+                    text:SetPoint("LEFT", 10, 0)
+                    text:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
+                    text:SetText(data.text)
+
+                    opt:SetScript("OnEnter", function()
+                        opt:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
+                        opt:SetBackdropBorderColor(0, 0, 0, 1)
+                    end)
+                    opt:SetScript("OnLeave", function()
+                        opt:SetBackdropColor(0, 0, 0, 0)
+                        opt:SetBackdropBorderColor(0, 0, 0, 0)
+                    end)
+                    opt:SetScript("OnClick", function()
+                        setFunc(data.value)
                         RefreshDisplay()
+                        menu:Hide()
+                    end)
+                end
 
-                        btn:SetScript("OnClick", function(self)
-                            if self.menu and self.menu:IsShown() then self.menu:Hide() return end
+                -- Invisible click-catcher to close menu if clicked outside
+                if not self.clickBlocker then
+                    self.clickBlocker = CreateFrame("Button", nil, UIParent)
+                    self.clickBlocker:SetAllPoints()
+                    self.clickBlocker:SetFrameStrata("TOOLTIP")
+                    self.clickBlocker:SetFrameLevel(menu:GetFrameLevel() - 1)
+                    self.clickBlocker:SetScript("OnClick", function() menu:Hide() end)
+                end
+                self.clickBlocker:Show()
+                menu:HookScript("OnHide", function() self.clickBlocker:Hide() end)
 
-                            local menu = self.menu or CreateFrame("Frame", nil, self, "BackdropTemplate")
-                            self.menu = menu
-                            menu:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -1)
-                            menu:SetFrameStrata("TOOLTIP")
-                            menu:SetBackdrop(Style.Backdrop)
-                            menu:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
-                            menu:SetBackdropBorderColor(0, 0, 0, 1)
+                menu:Show()
+            end)
 
-                            if menu.buttons then for _, b in pairs(menu.buttons) do b:Hide() end end
-                            menu.buttons = menu.buttons or {}
+            btn.RefreshDisplay = RefreshDisplay
+            return btn
+        end
 
-                            local list = GetGroupMembers()
-                            menu:SetSize(width, #list * height + 10)
+        local subMods = {
+            { name = "Raid Buffs & Consumables", key = "Raid Buffs & Consumables", description = "Tracks missing group buffs and personal consumables.", instantToggle = true },
+            { name = "Combat Alerts", key = "Combat Alerts", description = "Provides visual alerts when entering and leaving combat.", instantToggle = true },
+            { name = "Power Infusion Helper", key = "Power Infusion Helper", description = "Alerts you when a specific player requests PI.", instantToggle = true },
+        }
 
-                            for i, data in ipairs(list) do
-                                local opt = menu.buttons[i] or CreateFrame("Button", nil, menu, "BackdropTemplate")
-                                menu.buttons[i] = opt
-                                opt:SetSize(width - 10, height - 2)
-                                opt:SetPoint("TOPLEFT", 5, -5 - ((i-1) * height))
-                                opt:Show()
+        for index, sMod in ipairs(subMods) do
+            local subModule = module.subModules and module.subModules[sMod.key]
+            if subModule then
+                local smName = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+                smName:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos)
+                smName:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
+                smName:SetText(sMod.name)
 
-                                opt:SetBackdrop(Style.Backdrop)
-                                opt:SetBackdropColor(0, 0, 0, 0)
-                                opt:SetBackdropBorderColor(0, 0, 0, 0)
+                local smDesc = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+                smDesc:SetPoint("TOPLEFT", smName, "BOTTOMLEFT", 0, -6)
+                smDesc:SetWidth(400)
+                smDesc:SetJustifyH("LEFT")
+                smDesc:SetFont(Style.STANDARD_FONT, 11, "OUTLINE")
+                smDesc:SetTextColor(0.6, 0.6, 0.6)
+                smDesc:SetText(sMod.description)
 
-                                local text = opt.text or opt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-                                opt.text = text
-                                text:SetPoint("LEFT", 10, 0)
-                                -- INCREASED FONT SIZE TO 14 TO MATCH BUTTONS
-                                text:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
-                                text:SetText(data.text)
+                local testBtn = CreateStyledButton(content, "Test", 80, 24)
+                testBtn:SetPoint("TOPLEFT", smDesc, "BOTTOMLEFT", 0, -12)
 
-                                -- MATCHED MOUSEOVER COLOR (0.1, 0.1, 0.1, 0.9) FROM CreateStyledButton
-                                opt:SetScript("OnEnter", function()
-                                    opt:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
-                                    opt:SetBackdropBorderColor(0, 0, 0, 1)
-                                end)
-                                opt:SetScript("OnLeave", function()
-                                    opt:SetBackdropColor(0, 0, 0, 0)
-                                    opt:SetBackdropBorderColor(0, 0, 0, 0)
-                                end)
-                                opt:SetScript("OnClick", function()
-                                    setFunc(data.value)
-                                    RefreshDisplay()
-                                    menu:Hide()
-                                end)
-                            end
-                            menu:Show()
-                        end)
+                local smToggle = CreateStyledButton(content, "", 100, 24)
+                smToggle:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
 
-                        btn.RefreshDisplay = RefreshDisplay
-                        return btn
+                if whisperDB.essentials[sMod.key] ~= nil then subModule.enabled = whisperDB.essentials[sMod.key] end
+
+                local function UpdateToggle()
+                    local active = subModule.enabled ~= false
+                    smToggle:SetText(active and "ENABLED" or "DISABLED")
+                    smToggle:GetFontString():SetTextColor(unpack(active and COLOR_GREEN or COLOR_RED))
+                end
+                UpdateToggle()
+
+                smToggle:SetScript("OnClick", function()
+                    subModule.enabled = not (subModule.enabled ~= false)
+                    whisperDB.essentials[sMod.key] = subModule.enabled
+                    if sMod.instantToggle then
+                        if subModule.enabled and subModule.Init then subModule:Init()
+                        elseif not subModule.enabled and subModule.Disable then subModule:Disable() end
                     end
+                    UpdateToggle()
+                end)
 
-                    local subMods = {
-                        { name = "Raid Buffs & Consumables", key = "Raid Buffs & Consumables", description = "Tracks missing group buffs and personal consumables.", instantToggle = true },
-                        { name = "Combat Alerts", key = "Combat Alerts", description = "Provides visual alerts when entering and leaving combat.", instantToggle = true },
-                        { name = "Power Infusion Helper", key = "Power Infusion Helper", description = "Alerts you when a specific player requests PI.", instantToggle = true },
-                    }
-
-                    for index, sMod in ipairs(subMods) do
-                        local subModule = module.subModules and module.subModules[sMod.key]
-                        if subModule then
-                            local smName = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-                            smName:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos)
-                            smName:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
-                            smName:SetText(sMod.name)
-
-                            local smDesc = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-                            smDesc:SetPoint("TOPLEFT", smName, "BOTTOMLEFT", 0, -6)
-                            smDesc:SetWidth(400)
-                            smDesc:SetJustifyH("LEFT")
-                            smDesc:SetFont(Style.STANDARD_FONT, 11, "OUTLINE")
-                            smDesc:SetTextColor(0.6, 0.6, 0.6)
-                            smDesc:SetText(sMod.description)
-
-                            local testBtn = CreateStyledButton(content, "Test", 80, 24)
-                            testBtn:SetPoint("TOPLEFT", smDesc, "BOTTOMLEFT", 0, -12)
-
-                            local smToggle = CreateStyledButton(content, "", 100, 24)
-                            smToggle:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
-
-                            if whisperDB.essentials[sMod.key] ~= nil then subModule.enabled = whisperDB.essentials[sMod.key] end
-
-                            local function UpdateToggle()
-                                local active = subModule.enabled ~= false
-                                smToggle:SetText(active and "ENABLED" or "DISABLED")
-                                smToggle:GetFontString():SetTextColor(unpack(active and COLOR_GREEN or COLOR_RED))
-                            end
-                            UpdateToggle()
-
-                            smToggle:SetScript("OnClick", function()
-                                subModule.enabled = not (subModule.enabled ~= false)
-                                whisperDB.essentials[sMod.key] = subModule.enabled
-                                if sMod.instantToggle then
-                                    if subModule.enabled and subModule.Init then subModule:Init()
-                                    elseif not subModule.enabled and subModule.Disable then subModule:Disable() end
-                                end
-                                UpdateToggle()
-                            end)
-
-                            -- Module Specific Extras (Aligned horizontally)
-                            if sMod.key == "Power Infusion Helper" then
-                                local dd = CreateCustomDropdown(content, 160, 24,
-                                    function() return whisperDB.piTarget or "None" end,
-                                    function(val) whisperDB.piTarget = val end
-                                )
-                                dd:SetPoint("TOPLEFT", smToggle, "TOPRIGHT", 10, 0)
-                            elseif sMod.key == "Combat Alerts" then
-                                local chToggle = CreateStyledButton(content, "", 140, 24)
-                                chToggle:SetPoint("TOPLEFT", smToggle, "TOPRIGHT", 10, 0)
-                                local function UpdateCH()
-                                    chToggle:SetText(subModule.showCrosshair and "Crosshair: ON" or "Crosshair: OFF")
-                                    chToggle:GetFontString():SetTextColor(unpack(subModule.showCrosshair and COLOR_PURPLE or {0.6, 0.6, 0.6}))
-                                end
-                                UpdateCH()
-                                chToggle:SetScript("OnClick", function()
-                                    subModule.showCrosshair = not subModule.showCrosshair
-                                    whisperDB.essentials["Combat Alerts_Crosshair"] = subModule.showCrosshair
-                                    UpdateCH()
-                                end)
-                            end
-
-                            testBtn:SetScript("OnClick", function()
-                                if subModule.ToggleTestMode then
-                                    subModule:ToggleTestMode(not subModule.isTesting)
-                                    testBtn:SetText(subModule.isTesting and "End" or "Test")
-                                    testBtn:GetFontString():SetTextColor(unpack(subModule.isTesting and COLOR_RED or COLOR_WHITE))
-                                end
-                            end)
-
-                            yPos = yPos - 90
-                            if index < #subMods then
-                                local sep = content:CreateTexture(nil, "ARTWORK")
-                                sep:SetTexture("Interface/Buttons/WHITE8X8")
-                                sep:SetVertexColor(0.2, 0.2, 0.2, 0.5)
-                                sep:SetHeight(1)
-                                sep:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos + 5)
-                                sep:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yPos + 5)
-                                yPos = yPos - 15
-                            end
-                        end
+                testBtn:SetScript("OnClick", function()
+                    if subModule.ToggleTestMode then
+                        subModule:ToggleTestMode(not subModule.isTesting)
+                        testBtn:SetText(subModule.isTesting and "End" or "Test")
+                        testBtn:GetFontString():SetTextColor(unpack(subModule.isTesting and COLOR_RED or COLOR_WHITE))
                     end
+                end)
+
+                -- Module Specific Extras
+                if sMod.key == "Power Infusion Helper" then
+                    local soundBtn = CreateStyledButton(content, "", 140, 24)
+                    soundBtn:SetPoint("TOPLEFT", smToggle, "TOPRIGHT", 10, 0)
+
+                    local function UpdateSoundBtn()
+                        local isSoundOn = whisperDB.essentials["Power Infusion Helper_Sound"] ~= false
+                        soundBtn:SetText(isSoundOn and "Sound Alert: ON" or "Sound Alert: OFF")
+                        soundBtn:GetFontString():SetTextColor(unpack(isSoundOn and COLOR_PURPLE or {0.6, 0.6, 0.6}))
+                    end
+                    UpdateSoundBtn()
+
+                    soundBtn:SetScript("OnClick", function()
+                        local current = whisperDB.essentials["Power Infusion Helper_Sound"] ~= false
+                        whisperDB.essentials["Power Infusion Helper_Sound"] = not current
+                        UpdateSoundBtn()
+                    end)
+
+                    local dd = CreateCustomDropdown(content, 180, 24,
+                        function() return whisperDB.piTarget or "None" end,
+                        function(val) whisperDB.piTarget = val end
+                    )
+                    dd:SetPoint("TOPLEFT", testBtn, "BOTTOMLEFT", 0, -8)
+
+                    yPos = yPos - 30
+
+                elseif sMod.key == "Combat Alerts" then
+                    local chToggle = CreateStyledButton(content, "", 140, 24)
+                    chToggle:SetPoint("TOPLEFT", smToggle, "TOPRIGHT", 10, 0)
+                    local function UpdateCH()
+                        chToggle:SetText(subModule.showCrosshair and "Crosshair: ON" or "Crosshair: OFF")
+                        chToggle:GetFontString():SetTextColor(unpack(subModule.showCrosshair and COLOR_PURPLE or {0.6, 0.6, 0.6}))
+                    end
+                    UpdateCH()
+                    chToggle:SetScript("OnClick", function()
+                        subModule.showCrosshair = not subModule.showCrosshair
+                        whisperDB.essentials["Combat Alerts_Crosshair"] = subModule.showCrosshair
+                        UpdateCH()
+                    end)
+                end
+
+                yPos = yPos - 90
+                if index < #subMods then
+                    local sep = content:CreateTexture(nil, "ARTWORK")
+                    sep:SetTexture("Interface/Buttons/WHITE8X8")
+                    sep:SetVertexColor(0.2, 0.2, 0.2, 0.5)
+                    sep:SetHeight(1)
+                    sep:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, yPos + 5)
+                    sep:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, yPos + 5)
+                    yPos = yPos - 15
+                end
+            end
+        end
 
     elseif moduleName == "Utilities" then
         local yPos = -15

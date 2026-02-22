@@ -206,6 +206,15 @@ Essentials.subModules = {}
 Essentials.isTestMode = false
 
 function Essentials:Init()
+    -- Sync Database configurations first so modules don't boot up incorrectly
+    if whisperDB and whisperDB.essentials then
+        for name, mod in pairs(self.subModules) do
+            if whisperDB.essentials[name] ~= nil then
+                mod.enabled = whisperDB.essentials[name]
+            end
+        end
+    end
+
     for name, mod in pairs(self.subModules) do
         if mod.enabled ~= false and mod.Init then
             mod:Init()
@@ -340,11 +349,29 @@ RaidBuffs.CONSUMABLES = {
 }
 
 function RaidBuffs:Init()
+    self.enabled = true
     _, self.playerClass = UnitClass("player")
 
-    self.frame = CreateFrame("Frame", "whisperRaidBuffsFrame", UIParent)
-    self.frame:SetSize(1, 1)
-    self.frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", self.POS_X, self.POS_Y)
+    -- Safeguard to prevent creating multiple UI frames if enabled rapidly
+    if not self.frame then
+        self.frame = CreateFrame("Frame", "whisperRaidBuffsFrame", UIParent)
+        self.frame:SetSize(1, 1)
+        self.frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", self.POS_X, self.POS_Y)
+
+        self.frame:SetScript("OnEvent", function(_, event, unit)
+            if event == "PLAYER_REGEN_DISABLED" then
+                self:UpdateDisplay()
+            elseif event == "PLAYER_REGEN_ENABLED" then
+                self:RequestUpdate()
+            elseif event == "UNIT_AURA" then
+                if unit == "player" or (unit and (string.find(unit, "party") or string.find(unit, "raid"))) then
+                    self:RequestUpdate()
+                end
+            else
+                self:RequestUpdate()
+            end
+        end)
+    end
 
     self.frame:RegisterEvent("UNIT_AURA")
     self.frame:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -354,32 +381,37 @@ function RaidBuffs:Init()
     self.frame:RegisterEvent("UNIT_INVENTORY_CHANGED")
     self.frame:RegisterEvent("BAG_UPDATE")
 
-    self.frame:SetScript("OnEvent", function(_, event, unit)
-        if event == "PLAYER_REGEN_DISABLED" then
-            self:UpdateDisplay()
-        elseif event == "PLAYER_REGEN_ENABLED" then
-            self:RequestUpdate()
-        elseif event == "UNIT_AURA" then
-            if unit == "player" or (unit and (string.find(unit, "party") or string.find(unit, "raid"))) then
-                self:RequestUpdate()
-            end
-        else
-            self:RequestUpdate()
-        end
-    end)
-
+    self.frame:Show()
     self:RequestUpdate()
 end
 
 function RaidBuffs:Disable()
+    self.enabled = false
+
+    if self.updateTimer then
+        self.updateTimer:Cancel()
+        self.updateTimer = nil
+    end
+
     if self.frame then
         self.frame:UnregisterAllEvents()
         self.frame:Hide()
     end
+
+    -- Sweep any straggler icons to clear the UI immediately
+    for _, icon in ipairs(self.iconPool) do icon:Hide() end
+    self.activeIcons = {}
 end
 
 function RaidBuffs:ToggleTestMode(state)
     self.isTesting = state
+    if self.frame then
+        if state then
+            self.frame:Show()
+        elseif not self.enabled then
+            self.frame:Hide()
+        end
+    end
     self:UpdateDisplay()
 end
 
@@ -395,13 +427,21 @@ function RaidBuffs:UpdateDisplay()
     for _, icon in ipairs(self.iconPool) do icon:Hide() end
     self.activeIcons = {}
 
+    -- Guard: Block logic entirely if disabled (unless testing)
+    if not self.enabled and not self.isTesting then return end
     if InCombatLockdown() then return end
+
+    local _, instanceType = IsInInstance()
+    local validInstance = (instanceType == "party" or instanceType == "raid")
 
     if self.isTesting then
         self:RunTestMode()
         self:LayoutIcons()
         return
     end
+
+    -- Prevent execution if not in Dungeon or Raid
+    if not validInstance then return end
 
     self:CheckMissingBuffs()
     self:LayoutIcons()
@@ -694,6 +734,7 @@ local CombatAlerts = {
 Essentials.subModules["Combat Alerts"] = CombatAlerts
 
 function CombatAlerts:Init()
+    self.enabled = true
     if whisperDB and whisperDB.essentials and whisperDB.essentials["Combat Alerts_Crosshair"] ~= nil then
         self.showCrosshair = whisperDB.essentials["Combat Alerts_Crosshair"]
     end
@@ -790,6 +831,7 @@ function CombatAlerts:TriggerAlert(entering)
 end
 
 function CombatAlerts:Disable()
+    self.enabled = false
     if self.frame then
         self.frame:UnregisterAllEvents()
         self.frame:Hide()
@@ -818,7 +860,7 @@ function CombatAlerts:ToggleTestMode(state)
         if self.frame then
             self.frame:Hide()
             self.frame:SetAlpha(0)
-            if self.enabled then
+            if self.enabled ~= false then
                 self.frame:RegisterEvent("PLAYER_REGEN_DISABLED")
                 self.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
             end
@@ -847,15 +889,25 @@ local function GetNameOnly(fullName)
 end
 
 function PIHelper:Init()
+    self.enabled = true
     local _, class = UnitClass("player")
-    if class ~= "PRIEST" then return end
 
     self.frame = self.frame or CreateFrame("Frame")
-    self.frame:RegisterEvent("CHAT_MSG_WHISPER")
-    self.frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+
+    -- Only register functional combat and chat events if the player is a Priest
+    if class == "PRIEST" then
+        self.frame:RegisterEvent("CHAT_MSG_WHISPER")
+        self.frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    else
+        self.frame:UnregisterAllEvents()
+    end
 
     self.frame:SetScript("OnEvent", function(_, event, ...)
         if event == "CHAT_MSG_WHISPER" then
+            -- Instance Safety Guard
+            local _, instanceType = IsInInstance()
+            if instanceType ~= "party" and instanceType ~= "raid" then return end
+
             local text, sender = ...
             if not text or not sender then return end
 
@@ -903,8 +955,14 @@ function PIHelper:ProcessPIRequest(playerName)
     -- HARD STRIP REALM NAME
     local nameOnly = GetNameOnly(playerName)
 
-    -- 1. SPAM PROTECTED CUSTOM SOUND
-    if (currentTime - self.lastSoundTime) > 5 then
+    -- SOUND TOGGLE LOGIC
+    local soundEnabled = true
+    if whisperDB and whisperDB.essentials and whisperDB.essentials["Power Infusion Helper_Sound"] ~= nil then
+        soundEnabled = whisperDB.essentials["Power Infusion Helper_Sound"]
+    end
+
+    -- 1. SPAM PROTECTED CUSTOM SOUND (Respects User Settings)
+    if soundEnabled and (currentTime - self.lastSoundTime) > 5 then
         PlaySoundFile(self.soundPath, "Master")
         self.lastSoundTime = currentTime
     end
@@ -929,6 +987,7 @@ function PIHelper:ProcessPIRequest(playerName)
     local animations = {CombatAlerts.animGroup:GetAnimations()}
     for _, anim in ipairs(animations) do
         if anim:GetOrder() == 2 then
+            -- Reverted to 8 seconds (no more 9999 permanent testing hold)
             anim:SetDuration(8)
         end
     end
@@ -936,4 +995,35 @@ function PIHelper:ProcessPIRequest(playerName)
     CombatAlerts.frame:SetAlpha(1)
     CombatAlerts.frame:Show()
     CombatAlerts.animGroup:Play()
+end
+
+function PIHelper:ToggleTestMode(state)
+    -- Block test mode entirely if the module is disabled
+    if state and not self.enabled then
+        self.isTesting = false
+        return
+    end
+
+    self.isTesting = state
+    if state then
+        self:ProcessPIRequest(UnitName("player"))
+    else
+        -- When test mode is turned off, immediately clear the screen
+        if CombatAlerts and CombatAlerts.frame then
+            CombatAlerts.animGroup:Stop()
+            CombatAlerts.frame:Hide()
+        end
+    end
+end
+
+function PIHelper:Disable()
+    self.enabled = false
+    if self.frame then
+        self.frame:UnregisterAllEvents()
+    end
+
+    -- If they click disable while testing, kill the test mode immediately
+    if self.isTesting then
+        self:ToggleTestMode(false)
+    end
 end

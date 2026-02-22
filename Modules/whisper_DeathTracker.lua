@@ -25,7 +25,7 @@ local HOLD_TIME = 4.0
 local FADE_TIME = 1.0
 local RESET_WINDOW = 5.0
 local SPACING = 2
-local UPDATE_THROTTLE = 0.1 -- 100ms throttle to prevent lag
+local UPDATE_THROTTLE = 0.1
 
 -- Default Values
 local DEFAULTS = {
@@ -37,10 +37,11 @@ local DEFAULTS = {
 
 -- State
 local messageFrame
-local deadCache = {} -- Stores death state by Safe Unit ID (e.g. "raid1")
+local deadCache = {}
 local recentDeaths = 0
 local resetTimer = nil
 local updateTimer = nil
+local eventFrame
 
 -- =========================
 -- Logic
@@ -69,14 +70,13 @@ local function AnnounceDeath(name, classFilename)
         end
     end
 
-    -- Add message to frame
     if messageFrame then
         messageFrame:AddMessage(format("%s%s|r died", classColorStr, name or "Unknown"))
     end
 end
 
 -- =========================
--- Group Scanning (12.0 Safe)
+-- Group Scanning
 -- =========================
 function Deaths:ScanGroupDeaths()
     if not Deaths.enabled then return end
@@ -84,7 +84,6 @@ function Deaths:ScanGroupDeaths()
     local numMembers = GetNumGroupMembers()
     local prefix = IsInRaid() and "raid" or "party"
 
-    -- If in a party, we also need to check "player" separately
     if not IsInRaid() then
         if UnitIsDeadOrGhost("player") then
             if not deadCache["player"] then
@@ -97,61 +96,21 @@ function Deaths:ScanGroupDeaths()
         end
     end
 
-    -- Scan members
     for i = 1, numMembers do
-        -- Construct the ID manually to avoid "Secret" taint
         local safeID = prefix .. i
 
         if UnitIsDeadOrGhost(safeID) then
             if not deadCache[safeID] then
                 deadCache[safeID] = true
-
-                -- Retrieve info using the safe ID
                 local name = UnitName(safeID)
                 local _, class = UnitClass(safeID)
-
-                if name then
-                    AnnounceDeath(name, class)
-                end
+                if name then AnnounceDeath(name, class) end
             end
         else
-            -- Mark as alive so we can announce their death again if they die later
             deadCache[safeID] = nil
         end
     end
 end
-
--- =========================
--- Event Handling
--- =========================
-local eventFrame = CreateFrame("Frame")
--- We use UNIT_FLAGS to detect when status changes (like health/death)
-eventFrame:RegisterEvent("UNIT_FLAGS")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-
-eventFrame:SetScript("OnEvent", function(self, event)
-    if not Deaths.enabled or Deaths.isTestMode then return end
-
-    if event == "UNIT_FLAGS" then
-        -- 12.0 FIX: Do NOT use the 'unit' argument. It might be Secret.
-        -- Instead, request a safe group scan.
-        if not updateTimer then
-            updateTimer = C_Timer.NewTimer(UPDATE_THROTTLE, function()
-                Deaths:ScanGroupDeaths()
-                updateTimer = nil
-            end)
-        end
-
-    elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
-        -- Reset cache on load/roster change to prevent phantom announcements
-        deadCache = {}
-        recentDeaths = 0
-        if resetTimer then C_Timer.CancelTimer(resetTimer) end
-        resetTimer = nil
-        Deaths:CheckZone()
-    end
-end)
 
 -- =========================
 -- Test Mode Logic
@@ -188,7 +147,7 @@ function Deaths:ToggleTestMode()
 end
 
 -- =========================
--- Settings Update & Init
+-- Settings Update
 -- =========================
 function Deaths:UpdateSettings()
     if not messageFrame then return end
@@ -233,7 +192,16 @@ function Deaths:ResetDefaults()
     self:UpdateSettings()
 end
 
+-- =========================
+-- Initialization
+-- =========================
+function Deaths:CheckZone()
+    local inInstance, instanceType = IsInInstance()
+    self.isActive = inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario")
+end
+
 function Deaths:Init()
+    self.enabled = true
     if not whisperDB.deathTracker then whisperDB.deathTracker = {} end
     local db = whisperDB.deathTracker
 
@@ -252,6 +220,32 @@ function Deaths:Init()
         messageFrame:SetSpacing(SPACING)
     end
 
+    if not eventFrame then
+        eventFrame = CreateFrame("Frame")
+        eventFrame:SetScript("OnEvent", function(self, event)
+            if not Deaths.enabled or Deaths.isTestMode then return end
+
+            if event == "UNIT_FLAGS" then
+                if not updateTimer then
+                    updateTimer = C_Timer.NewTimer(UPDATE_THROTTLE, function()
+                        Deaths:ScanGroupDeaths()
+                        updateTimer = nil
+                    end)
+                end
+            elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+                deadCache = {}
+                recentDeaths = 0
+                if resetTimer then C_Timer.CancelTimer(resetTimer) end
+                resetTimer = nil
+                Deaths:CheckZone()
+            end
+        end)
+    end
+
+    eventFrame:RegisterEvent("UNIT_FLAGS")
+    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+
     self:UpdateSettings()
     Deaths:CheckZone()
     if messageFrame then messageFrame:Show() end
@@ -259,17 +253,16 @@ end
 
 function Deaths:Disable()
     self.enabled = false
-    if messageFrame then messageFrame:Hide() end
-end
 
-function Deaths:CheckZone()
-    local inInstance, instanceType = IsInInstance()
-    self.isActive = inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario")
-end
+    if eventFrame then
+        eventFrame:UnregisterAllEvents()
+    end
 
-local loader = CreateFrame("Frame")
-loader:RegisterEvent("PLAYER_LOGIN")
-loader:SetScript("OnEvent", function(self, event)
-    Deaths:Init()
-    self:UnregisterEvent("PLAYER_LOGIN")
-end)
+    if messageFrame then
+        messageFrame:Hide()
+    end
+
+    if self.isTestMode then
+        self:ToggleTestMode()
+    end
+end

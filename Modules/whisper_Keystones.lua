@@ -34,7 +34,7 @@ local ORL = LibStub and LibStub:GetLibrary("LibOpenRaid-1.0", true)
 local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
 local ROW_HEIGHT = 38
-local ANCHOR_HEIGHT = 12 -- Increased by 1px
+local ANCHOR_HEIGHT = 12
 local ROW_SPACING = 1
 local WIDTH_NORMAL = 210
 local WIDTH_COMPACT = 110
@@ -202,6 +202,7 @@ local function HookExternalKeys()
                 local cmdName = k:match("^SLASH_(.+)%d+$")
                 if cmdName and SlashCmdList[cmdName] then
                     hooksecurefunc(SlashCmdList, cmdName, function()
+                        if not Keystones.enabled then return end
                         KeystoneManager:ScanOpenRaid()
                         Interface:Refresh()
                     end)
@@ -405,7 +406,7 @@ function Interface:Create()
     anchor:Hide()
 
     local anchorText = anchor:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorText:SetPoint("CENTER", 0, 0) -- Adjusted from 1 to 0 for better centering on 13px
+    anchorText:SetPoint("CENTER", 0, 0)
     anchorText:SetFont(STANDARD_FONT, 12)
     anchorText:SetText("ANCHOR")
     anchorText:SetTextColor(1, 1, 1)
@@ -436,6 +437,7 @@ end
 
 function Interface:Refresh()
     if not self.container then self:Create() end
+    if not Keystones.enabled and not Keystones.isTestMode then return end
 
     if InCombatLockdown() then
         self.container:Hide()
@@ -632,10 +634,11 @@ function Interface:UpdatePosition()
         self.container:SetPoint("TOPLEFT", UIParent, "CENTER", db.offsetX, db.offsetY)
     end
 
-    if not Keystones.enabled then self.container:Hide() end
+    if not Keystones.enabled and not Keystones.isTestMode then self.container:Hide() end
 end
 
 function Keystones:Init()
+    self.enabled = true
     if not whisperDB.keystones then whisperDB.keystones = {} end
     local db = whisperDB.keystones
     local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
@@ -661,6 +664,7 @@ function Keystones:Init()
 
     if ORL then
         local function OnKeystoneUpdate(unitName, info)
+            if not Keystones.enabled then return end
             if not info or not info.challengeMapID or info.challengeMapID == 0 then return end
             KeystoneManager:UpdateEntry(unitName, info.challengeMapID, info.level)
         end
@@ -671,7 +675,48 @@ function Keystones:Init()
 
     if not RegisterAddonMessagePrefix(COMM_PREFIX) then return end
 
-    eventFrame = CreateFrame("Frame")
+    if not eventFrame then
+        eventFrame = CreateFrame("Frame")
+        eventFrame:SetScript("OnEvent", function(self, event, ...)
+            if not Keystones.enabled then return end
+
+            if event == "CHAT_MSG_ADDON" then
+                Comms:OnMessage(...)
+            elseif event == "BAG_UPDATE" then
+                local now = GetTime()
+                if now - lastBagScan > 1 then
+                    lastBagScan = now
+                    KeystoneManager:ScanOwnKey()
+                end
+            elseif event == "GROUP_ROSTER_UPDATE" then
+                KeystoneManager:CleanParty()
+                C_Timer.After(1, function() Comms:Request() end)
+            elseif event == "PLAYER_ENTERING_WORLD" then
+                isInActiveChallenge = C_ChallengeMode.IsChallengeModeActive()
+                KeystoneManager:CleanParty()
+                Comms:Request()
+                Interface:Refresh()
+            elseif event == "CHALLENGE_MODE_START" then
+                isInActiveChallenge = true
+                Interface:Refresh()
+            elseif event == "CHALLENGE_MODE_COMPLETED" or event == "CHALLENGE_MODE_RESET" then
+                isInActiveChallenge = false
+                Interface:Refresh()
+            elseif event == "PLAYER_REGEN_ENABLED" then
+                if pendingUpdate then
+                    pendingUpdate = false
+                    Interface:Refresh()
+                end
+            elseif event == "SPELL_UPDATE_COOLDOWN" then
+                local now = GetTime()
+                if now - lastCooldownRefresh > 0.5 then
+                    lastCooldownRefresh = now
+                    Interface:Refresh()
+                end
+            end
+        end)
+    end
+
     eventFrame:RegisterEvent("CHAT_MSG_ADDON")
     eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     eventFrame:RegisterEvent("BAG_UPDATE")
@@ -681,43 +726,6 @@ function Keystones:Init()
     eventFrame:RegisterEvent("CHALLENGE_MODE_START")
     eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
     eventFrame:RegisterEvent("CHALLENGE_MODE_RESET")
-
-    eventFrame:SetScript("OnEvent", function(self, event, ...)
-        if event == "CHAT_MSG_ADDON" then
-            Comms:OnMessage(...)
-        elseif event == "BAG_UPDATE" then
-            local now = GetTime()
-            if now - lastBagScan > 1 then
-                lastBagScan = now
-                KeystoneManager:ScanOwnKey()
-            end
-        elseif event == "GROUP_ROSTER_UPDATE" then
-            KeystoneManager:CleanParty()
-            C_Timer.After(1, function() Comms:Request() end)
-        elseif event == "PLAYER_ENTERING_WORLD" then
-            isInActiveChallenge = C_ChallengeMode.IsChallengeModeActive()
-            KeystoneManager:CleanParty()
-            Comms:Request()
-            Interface:Refresh()
-        elseif event == "CHALLENGE_MODE_START" then
-            isInActiveChallenge = true
-            Interface:Refresh()
-        elseif event == "CHALLENGE_MODE_COMPLETED" or event == "CHALLENGE_MODE_RESET" then
-            isInActiveChallenge = false
-            Interface:Refresh()
-        elseif event == "PLAYER_REGEN_ENABLED" then
-            if pendingUpdate then
-                pendingUpdate = false
-                Interface:Refresh()
-            end
-        elseif event == "SPELL_UPDATE_COOLDOWN" then
-            local now = GetTime()
-            if now - lastCooldownRefresh > 0.5 then
-                lastCooldownRefresh = now
-                Interface:Refresh()
-            end
-        end
-    end)
 
     KeystoneManager:ScanOwnKey()
 end
@@ -729,15 +737,20 @@ end
 
 function Keystones:Disable()
     self.enabled = false
-    if Interface.container then Interface.container:Hide() end
+
+    if eventFrame then
+        eventFrame:UnregisterAllEvents()
+    end
+
+    if Interface.container then
+        Interface.container:Hide()
+    end
+
     if whisperDB.keystones then
         whisperDB.keystones.partyCache = KeystoneManager.partyData
     end
-end
 
-local loader = CreateFrame("Frame")
-loader:RegisterEvent("PLAYER_LOGIN")
-loader:SetScript("OnEvent", function(self, event)
-    Keystones:Init()
-    self:UnregisterEvent("PLAYER_LOGIN")
-end)
+    if self.isTestMode then
+        self:ToggleTestMode()
+    end
+end
