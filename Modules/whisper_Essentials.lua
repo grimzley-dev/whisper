@@ -87,7 +87,7 @@ local function IsUnitEligibleForBuff(unit, filterFunc)
 end
 
 -- Advanced Aura Checker: Scans for a list of Spell IDs or an Icon ID.
--- HARDENED FOR 12.0: Safely bypasses "Secret Value" expiration times
+-- HARDENED FOR 12.0: Safely bypasses "Secret Value" taint errors using pcall
 local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
     local timeRemaining = nil
     local hasBuff = false
@@ -98,10 +98,17 @@ local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
             if not aura then break end
 
             local match = false
-            if iconID and aura.icon == iconID then match = true end
-            if spellIDs then
+
+            -- SAFE CHECK: Bypasses "Secret Value" taint errors in 11.0+
+            if iconID then
+                local ok, isMatch = pcall(function() return aura.icon == iconID end)
+                if ok and isMatch then match = true end
+            end
+
+            if not match and spellIDs then
                 for _, sid in ipairs(spellIDs) do
-                    if aura.spellId == sid then match = true; break end
+                    local ok, isMatch = pcall(function() return aura.spellId == sid end)
+                    if ok and isMatch then match = true; break end
                 end
             end
 
@@ -110,9 +117,10 @@ local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
                     -- Skip this aura, we didn't cast it
                 else
                     hasBuff = true
-                    -- 12.0 SECURE CHECK: Ensure expirationTime is a readable number, not a secret userdata object
-                    if aura.expirationTime and type(aura.expirationTime) == "number" and aura.expirationTime > 0 then
-                        timeRemaining = aura.expirationTime - GetTime()
+                    -- Safely check expiration time to avoid Secret userdata crashes
+                    local ok, exp = pcall(function() return aura.expirationTime end)
+                    if ok and type(exp) == "number" and exp > 0 then
+                        timeRemaining = exp - GetTime()
                     end
                     return hasBuff, timeRemaining
                 end
@@ -123,10 +131,16 @@ local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
             if not name then break end
 
             local match = false
-            if iconID and icon == iconID then match = true end
-            if spellIDs then
+
+            if iconID then
+                local ok, isMatch = pcall(function() return icon == iconID end)
+                if ok and isMatch then match = true end
+            end
+
+            if not match and spellIDs then
                 for _, checkSid in ipairs(spellIDs) do
-                    if sid == checkSid then match = true; break end
+                    local ok, isMatch = pcall(function() return sid == checkSid end)
+                    if ok and isMatch then match = true; break end
                 end
             end
 
@@ -135,8 +149,9 @@ local function CheckAura(unit, spellIDs, iconID, requirePlayerSource)
                     -- Skip
                 else
                     hasBuff = true
-                    if expirationTime and type(expirationTime) == "number" and expirationTime > 0 then
-                        timeRemaining = expirationTime - GetTime()
+                    local ok, exp = pcall(function() return expirationTime end)
+                    if ok and type(exp) == "number" and exp > 0 then
+                        timeRemaining = exp - GetTime()
                     end
                     return hasBuff, timeRemaining
                 end
@@ -248,6 +263,7 @@ local RaidBuffs = {
     updateTimer = nil,
     playerClass = nil,
     isTesting = false,
+    inCombat = false, -- New combat state tracker
 
     ICON_SIZE = 60,
     SPACING = 1,
@@ -350,6 +366,7 @@ RaidBuffs.CONSUMABLES = {
 
 function RaidBuffs:Init()
     self.enabled = true
+    self.inCombat = InCombatLockdown()
     _, self.playerClass = UnitClass("player")
 
     -- Safeguard to prevent creating multiple UI frames if enabled rapidly
@@ -360,14 +377,30 @@ function RaidBuffs:Init()
 
         self.frame:SetScript("OnEvent", function(_, event, unit)
             if event == "PLAYER_REGEN_DISABLED" then
-                self:UpdateDisplay()
+                -- ENTERING COMBAT: Instantly halt updates and hide visuals
+                self.inCombat = true
+                if self.updateTimer then
+                    self.updateTimer:Cancel()
+                    self.updateTimer = nil
+                end
+                for _, icon in ipairs(self.iconPool) do icon:Hide() end
+                self.activeIcons = {}
+
             elseif event == "PLAYER_REGEN_ENABLED" then
+                -- LEAVING COMBAT: Resume checking
+                self.inCombat = false
                 self:RequestUpdate()
+
             elseif event == "UNIT_AURA" then
+                -- HARD GUARD: Ignore all aura events during combat
+                if self.inCombat or InCombatLockdown() then return end
                 if unit == "player" or (unit and (string.find(unit, "party") or string.find(unit, "raid"))) then
                     self:RequestUpdate()
                 end
+
             else
+                -- HARD GUARD: Ignore all other inventory/bag events during combat
+                if self.inCombat or InCombatLockdown() then return end
                 self:RequestUpdate()
             end
         end)
@@ -382,7 +415,7 @@ function RaidBuffs:Init()
     self.frame:RegisterEvent("BAG_UPDATE")
 
     self.frame:Show()
-    self:RequestUpdate()
+    if not self.inCombat then self:RequestUpdate() end
 end
 
 function RaidBuffs:Disable()
@@ -424,12 +457,18 @@ function RaidBuffs:RequestUpdate()
 end
 
 function RaidBuffs:UpdateDisplay()
-    for _, icon in ipairs(self.iconPool) do icon:Hide() end
-    self.activeIcons = {}
-
     -- Guard: Block logic entirely if disabled (unless testing)
     if not self.enabled and not self.isTesting then return end
-    if InCombatLockdown() then return end
+
+    -- STRICT COMBAT BLOCK: Failsafe just in case a timer snuck through
+    if InCombatLockdown() or self.inCombat then
+        for _, icon in ipairs(self.iconPool) do icon:Hide() end
+        self.activeIcons = {}
+        return
+    end
+
+    for _, icon in ipairs(self.iconPool) do icon:Hide() end
+    self.activeIcons = {}
 
     local _, instanceType = IsInInstance()
     local validInstance = (instanceType == "party" or instanceType == "raid")
