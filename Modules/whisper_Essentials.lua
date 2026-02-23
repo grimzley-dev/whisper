@@ -927,7 +927,7 @@ local PIHelper = {
 }
 Essentials.subModules["Power Infusion Helper"] = PIHelper
 
--- Internal helper to HARD strip realm names from the Config target
+-- Internal helper to HARD strip realm names
 local function GetNameOnly(fullName)
     if not fullName then return "Unknown" end
     local name = strsplit("-", fullName)
@@ -950,24 +950,43 @@ function PIHelper:Init()
             local _, instanceType = IsInInstance()
             if instanceType ~= "party" and instanceType ~= "raid" then return end
 
-            -- Grab the 12th argument (GUID) to completely bypass the tainted 'sender' string
+            -- Grab the 12th argument (GUID)
             local _, _, _, _, _, _, _, _, _, _, _, guid = ...
             if not guid then return end
 
             local selectedTarget = whisperDB and whisperDB.piTarget
             if not selectedTarget or selectedTarget == "None" then return end
 
-            -- SECURE EXTRACTION: Ask the server to securely translate the GUID into clean text
-            -- Returns: localizedClass, englishClass, localizedRace, englishRace, sex, name, realm
-            local _, englishClass, _, _, _, shortSender = GetPlayerInfoByGUID(guid)
-            if not shortSender then return end
-
-            -- Clean the realm off our config target
             local shortTarget = GetNameOnly(selectedTarget)
 
-            -- If our designated target whispered us AT ALL during combat, trigger PI alert!
-            if shortSender == shortTarget then
-                self:ProcessPIRequest(shortSender, englishClass)
+            -- 1. Find the system GUID of the person you selected in the config
+            local targetGUID = UnitGUID(selectedTarget)
+            if not targetGUID then
+                -- Fallback: Loop through the group to find their GUID if cross-realm makes UnitGUID fail
+                local prefix = IsInRaid() and "raid" or "party"
+                for i = 1, GetNumGroupMembers() do
+                    local unit = prefix .. i
+                    if UnitName(unit) == shortTarget then
+                        targetGUID = UnitGUID(unit)
+                        break
+                    end
+                end
+            end
+
+            -- If we still can't find your target's GUID, they aren't in your group.
+            if not targetGUID then return end
+
+            -- 2. Compare the incoming message GUID to your Target's GUID.
+            -- We wrap it in a pcall just in case Blizzard ever decides to taint GUIDs in the future.
+            local ok, isMatch = pcall(function() return guid == targetGUID end)
+
+            -- 3. If it matches, trigger the alert!
+            if ok and isMatch then
+                -- We use targetGUID to get the class to ensure it's 100% untainted
+                local _, englishClass = GetPlayerInfoByGUID(targetGUID)
+
+                -- We pass your clean Config target name to avoid touching the tainted sender name
+                self:ProcessPIRequest(shortTarget, englishClass)
             end
 
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
