@@ -946,48 +946,27 @@ function PIHelper:Init()
 
     self.frame:SetScript("OnEvent", function(_, event, ...)
         if event == "CHAT_MSG_WHISPER" then
-            -- Instance Safety Guard
+            -- 1. Instance Guard: Must be inside a Dungeon or Raid
             local _, instanceType = IsInInstance()
             if instanceType ~= "party" and instanceType ~= "raid" then return end
 
-            -- Grab the 12th argument (GUID)
-            local _, _, _, _, _, _, _, _, _, _, _, guid = ...
-            if not guid then return end
+            -- 2. Combat Guard: ONLY trigger during active combat
+            if not InCombatLockdown() then return end
 
+            -- 3. Target Guard: Ensure you actually have someone selected to buff
             local selectedTarget = whisperDB and whisperDB.piTarget
             if not selectedTarget or selectedTarget == "None" then return end
 
+            -- THE ULTIMATE BYPASS:
+            -- We completely ignore the incoming whisper data (sender, text, guid).
+            -- The whisper simply acts as a tripwire. If the tripwire is crossed in combat, trigger the alert!
+
             local shortTarget = GetNameOnly(selectedTarget)
 
-            -- 1. Find the system GUID of the person you selected in the config
-            local targetGUID = UnitGUID(selectedTarget)
-            if not targetGUID then
-                -- Fallback: Loop through the group to find their GUID if cross-realm makes UnitGUID fail
-                local prefix = IsInRaid() and "raid" or "party"
-                for i = 1, GetNumGroupMembers() do
-                    local unit = prefix .. i
-                    if UnitName(unit) == shortTarget then
-                        targetGUID = UnitGUID(unit)
-                        break
-                    end
-                end
-            end
+            -- We safely look up the class using your clean Config string, zero taint risk!
+            local _, englishClass = UnitClass(selectedTarget)
 
-            -- If we still can't find your target's GUID, they aren't in your group.
-            if not targetGUID then return end
-
-            -- 2. Compare the incoming message GUID to your Target's GUID.
-            -- We wrap it in a pcall just in case Blizzard ever decides to taint GUIDs in the future.
-            local ok, isMatch = pcall(function() return guid == targetGUID end)
-
-            -- 3. If it matches, trigger the alert!
-            if ok and isMatch then
-                -- We use targetGUID to get the class to ensure it's 100% untainted
-                local _, englishClass = GetPlayerInfoByGUID(targetGUID)
-
-                -- We pass your clean Config target name to avoid touching the tainted sender name
-                self:ProcessPIRequest(shortTarget, englishClass)
-            end
+            self:ProcessPIRequest(shortTarget, englishClass)
 
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             local unitTarget, _, spellID = ...
