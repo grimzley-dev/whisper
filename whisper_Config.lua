@@ -638,23 +638,35 @@ local function CreateModuleContent(parent, moduleName, module)
         -- Smart scanner that calculates duplicates
         local function GetGroupMembers()
             local members = { {text = "None", value = "None"} }
+
+            -- FIX: Always manually add the current player first
+            local units = {"player"}
+
             local num = GetNumGroupMembers()
             if num > 0 then
                 local prefix = IsInRaid() and "raid" or "party"
-                local counts = {}
-
-                -- First Pass: Count character names
                 for i = 1, num do
-                    local n = UnitName(prefix..i)
-                    if n then counts[n] = (counts[n] or 0) + 1 end
-                end
-
-                -- Second Pass: Build colored list
-                for i = 1, num do
-                    local colored, raw = GetClassColoredName(prefix..i, counts)
-                    if raw then tinsert(members, {text = colored, value = raw}) end
+                    local unit = prefix .. i
+                    -- Make sure we don't add the player twice if we are in a raid group
+                    if UnitExists(unit) and not UnitIsUnit(unit, "player") then
+                        tinsert(units, unit)
+                    end
                 end
             end
+
+            -- First Pass: Count character names for duplicate realm tracking
+            local counts = {}
+            for _, u in ipairs(units) do
+                local n = UnitName(u)
+                if n then counts[n] = (counts[n] or 0) + 1 end
+            end
+
+            -- Second Pass: Build colored dropdown list
+            for _, u in ipairs(units) do
+                local colored, raw = GetClassColoredName(u, counts)
+                if raw then tinsert(members, {text = colored, value = raw}) end
+            end
+
             return members
         end
 
@@ -664,7 +676,7 @@ local function CreateModuleContent(parent, moduleName, module)
 
             local function RefreshDisplay()
                 local current = getFunc()
-                if current == "None" or not IsInGroup() then
+                if current == "None" then
                     btn:SetText(current)
                 else
                     local found = false

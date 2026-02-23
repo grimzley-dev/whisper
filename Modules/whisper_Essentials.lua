@@ -929,17 +929,12 @@ end
 
 function PIHelper:Init()
     self.enabled = true
-    local _, class = UnitClass("player")
 
     self.frame = self.frame or CreateFrame("Frame")
 
-    -- Only register functional combat and chat events if the player is a Priest
-    if class == "PRIEST" then
-        self.frame:RegisterEvent("CHAT_MSG_WHISPER")
-        self.frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-    else
-        self.frame:UnregisterAllEvents()
-    end
+    -- TEMPORARILY REMOVED PRIEST RESTRICTION FOR MAGE TESTING
+    self.frame:RegisterEvent("CHAT_MSG_WHISPER")
+    self.frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
     self.frame:SetScript("OnEvent", function(_, event, ...)
         if event == "CHAT_MSG_WHISPER" then
@@ -951,9 +946,10 @@ function PIHelper:Init()
             if not text or not sender then return end
 
             local selectedTarget = whisperDB and whisperDB.piTarget
-            local msg = text:lower()
 
-            if msg:match("^pi me") then
+            -- Direct exact match checks to bypass Secret String indexing entirely
+            if text == "pi me" or text == "PI ME" or text == "Pi me" or text == "Pi Me" then
+
                 -- Guard: If target is "None", ignore everyone silently
                 if not selectedTarget or selectedTarget == "None" then return end
 
@@ -1060,7 +1056,6 @@ function PIHelper:Disable()
     if self.frame then
         self.frame:UnregisterAllEvents()
     end
-
 
     -- If they click disable while testing, kill the test mode immediately
     if self.isTesting then

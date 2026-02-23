@@ -35,6 +35,7 @@ local framePool = {}
 local stateByKey = {}
 local eventFrame
 local testTicker
+local inCombat = false
 
 -- =========================================================================
 -- UTILITY FUNCTIONS
@@ -344,8 +345,15 @@ end
 -- =========================================================================
 
 local function HandleRaidMessage(message)
-    local playerName, itemLink = string.match(message, "(%S+) was awarded with (|c.-|r) for")
-    if not playerName or not itemLink then return end
+    -- OUT OF COMBAT GUARD
+    if inCombat then return end
+
+    -- HARDENED FOR 12.0: Wrap the chat parsing in a pcall to prevent Secret String crashes
+    local ok, playerName, itemLink = pcall(string.match, message, "(%S+) was awarded with (|c.-|r) for")
+
+    -- If it's a secret string or doesn't match the format, safely ignore it
+    if not ok or not playerName or not itemLink then return end
+
     local simpleName = strsplit("-", playerName)
     local mine = UnitIsUnit("player", simpleName)
     if not mine and not config.showOthers then return end
@@ -374,6 +382,7 @@ end
 
 function LootAnnouncer:Init()
     self.enabled = true
+    inCombat = InCombatLockdown()
     if not whisperDB.lootAnnouncer then whisperDB.lootAnnouncer = {} end
     local db = whisperDB.lootAnnouncer
     local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
@@ -390,9 +399,18 @@ function LootAnnouncer:Init()
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
         eventFrame:SetScript("OnEvent", function(_, event, msg)
-            HandleRaidMessage(msg)
+            if event == "PLAYER_REGEN_DISABLED" then
+                inCombat = true
+            elseif event == "PLAYER_REGEN_ENABLED" then
+                inCombat = false
+            elseif event == "CHAT_MSG_RAID" or event == "CHAT_MSG_RAID_LEADER" then
+                HandleRaidMessage(msg)
+            end
         end)
     end
+
+    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     eventFrame:RegisterEvent("CHAT_MSG_RAID")
     eventFrame:RegisterEvent("CHAT_MSG_RAID_LEADER")
 
@@ -442,6 +460,12 @@ function LootAnnouncer:Disable()
 end
 
 function LootAnnouncer:ToggleTestMode()
+    -- Block test mode if module is disabled
+    if not self.enabled then
+        self.isTestMode = false
+        return
+    end
+
     self.isTestMode = not self.isTestMode
     if not containerFrame then CreateInterface() end
 
