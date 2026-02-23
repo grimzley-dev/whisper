@@ -763,7 +763,7 @@ function RaidBuffs:LayoutIcons()
 end
 
 -- =========================================================================
--- SUB-MODULE: COMBAT ALERTS
+-- SHARED UI FRAME GENERATOR (Used by Combat Alerts & PI Helper)
 -- =========================================================================
 local CombatAlerts = {
     enabled = true,
@@ -772,77 +772,85 @@ local CombatAlerts = {
 }
 Essentials.subModules["Combat Alerts"] = CombatAlerts
 
+-- We abstract this out so PIHelper can use the frame even if Combat Alerts is disabled
+local function EnsureAlertFrameExists()
+    if CombatAlerts.frame then return end
+
+    CombatAlerts.frame = CreateFrame("Frame", "whisperCombatAlertsFrame", UIParent)
+    CombatAlerts.frame:SetSize(200, 50)
+    CombatAlerts.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+    CombatAlerts.frame:Hide()
+
+    CombatAlerts.text = CombatAlerts.frame:CreateFontString(nil, "OVERLAY")
+    CombatAlerts.text:SetPoint("CENTER")
+    CombatAlerts.text:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+    CombatAlerts.text:SetShadowColor(0, 0, 0, 0)
+    CombatAlerts.text:SetShadowOffset(0, 0)
+
+    CombatAlerts.animGroup = CombatAlerts.frame:CreateAnimationGroup()
+    local fadeIn = CombatAlerts.animGroup:CreateAnimation("Alpha")
+    fadeIn:SetFromAlpha(0)
+    fadeIn:SetToAlpha(1)
+    fadeIn:SetDuration(0.4)
+    fadeIn:SetOrder(1)
+
+    local hold = CombatAlerts.animGroup:CreateAnimation("Alpha")
+    hold:SetFromAlpha(1)
+    hold:SetToAlpha(1)
+    hold:SetDuration(1.7)
+    hold:SetOrder(2)
+
+    local fadeOut = CombatAlerts.animGroup:CreateAnimation("Alpha")
+    fadeOut:SetFromAlpha(1)
+    fadeOut:SetToAlpha(0)
+    fadeOut:SetDuration(0.4)
+    fadeOut:SetOrder(3)
+
+    CombatAlerts.animGroup:SetScript("OnFinished", function()
+        if not CombatAlerts.isTesting then CombatAlerts.frame:Hide() end
+    end)
+
+    local ch = CreateFrame("Frame", "whisperCombatCrosshair", UIParent)
+    ch:SetSize(25, 25)
+    ch:SetFrameStrata("HIGH")
+    ch:SetPoint("CENTER", UIParent, "CENTER", 0, -30)
+
+    local hBorder = ch:CreateTexture(nil, "BACKGROUND")
+    hBorder:SetColorTexture(0, 0, 0, 1)
+    hBorder:SetSize(20, 5)
+    hBorder:SetPoint("CENTER")
+
+    local vBorder = ch:CreateTexture(nil, "BACKGROUND")
+    vBorder:SetColorTexture(0, 0, 0, 1)
+    vBorder:SetSize(5, 20)
+    vBorder:SetPoint("CENTER")
+
+    local hFill = ch:CreateTexture(nil, "ARTWORK")
+    hFill:SetColorTexture(1, 1, 1, 0.8)
+    hFill:SetSize(18, 3)
+    hFill:SetPoint("CENTER")
+
+    local vFill = ch:CreateTexture(nil, "ARTWORK")
+    vFill:SetColorTexture(1, 1, 1, 0.8)
+    vFill:SetSize(3, 18)
+    vFill:SetPoint("CENTER")
+
+    ch:Hide()
+    CombatAlerts.crosshair = ch
+end
+
+
+-- =========================================================================
+-- SUB-MODULE: COMBAT ALERTS
+-- =========================================================================
+
 function CombatAlerts:Init()
     self.enabled = true
     if whisperDB and whisperDB.essentials and whisperDB.essentials["Combat Alerts_Crosshair"] ~= nil then
         self.showCrosshair = whisperDB.essentials["Combat Alerts_Crosshair"]
     end
 
-    if not self.frame then
-        self.frame = CreateFrame("Frame", "whisperCombatAlertsFrame", UIParent)
-        self.frame:SetSize(200, 50)
-        self.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
-        self.frame:Hide()
-
-        self.text = self.frame:CreateFontString(nil, "OVERLAY")
-        self.text:SetPoint("CENTER")
-        self.text:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
-        self.text:SetShadowColor(0, 0, 0, 0)
-        self.text:SetShadowOffset(0, 0)
-
-        self.animGroup = self.frame:CreateAnimationGroup()
-        local fadeIn = self.animGroup:CreateAnimation("Alpha")
-        fadeIn:SetFromAlpha(0)
-        fadeIn:SetToAlpha(1)
-        fadeIn:SetDuration(0.4)
-        fadeIn:SetOrder(1)
-
-        local hold = self.animGroup:CreateAnimation("Alpha")
-        hold:SetFromAlpha(1)
-        hold:SetToAlpha(1)
-        hold:SetDuration(1.7)
-        hold:SetOrder(2)
-
-        local fadeOut = self.animGroup:CreateAnimation("Alpha")
-        fadeOut:SetFromAlpha(1)
-        fadeOut:SetToAlpha(0)
-        fadeOut:SetDuration(0.4)
-        fadeOut:SetOrder(3)
-
-        self.animGroup:SetScript("OnFinished", function()
-            if not self.isTesting then self.frame:Hide() end
-        end)
-    end
-
-    if not self.crosshair then
-        local ch = CreateFrame("Frame", "whisperCombatCrosshair", UIParent)
-        ch:SetSize(25, 25)
-        ch:SetFrameStrata("HIGH")
-        ch:SetPoint("CENTER", UIParent, "CENTER", 0, -30)
-
-        local hBorder = ch:CreateTexture(nil, "BACKGROUND")
-        hBorder:SetColorTexture(0, 0, 0, 1)
-        hBorder:SetSize(20, 5)
-        hBorder:SetPoint("CENTER")
-
-        local vBorder = ch:CreateTexture(nil, "BACKGROUND")
-        vBorder:SetColorTexture(0, 0, 0, 1)
-        vBorder:SetSize(5, 20)
-        vBorder:SetPoint("CENTER")
-
-        local hFill = ch:CreateTexture(nil, "ARTWORK")
-        hFill:SetColorTexture(1, 1, 1, 0.8)
-        hFill:SetSize(18, 3)
-        hFill:SetPoint("CENTER")
-
-        local vFill = ch:CreateTexture(nil, "ARTWORK")
-        vFill:SetColorTexture(1, 1, 1, 0.8)
-        vFill:SetSize(3, 18)
-        vFill:SetPoint("CENTER")
-
-        ch:Hide()
-        self.crosshair = ch
-    end
+    EnsureAlertFrameExists()
 
     self.frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     self.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -931,6 +939,7 @@ function PIHelper:Init()
     self.enabled = true
 
     self.frame = self.frame or CreateFrame("Frame")
+    EnsureAlertFrameExists() -- Ensures CombatAlerts.frame exists for printing, even if disabled
 
     -- TEMPORARILY REMOVED PRIEST RESTRICTION FOR MAGE TESTING
     self.frame:RegisterEvent("CHAT_MSG_WHISPER")
@@ -943,34 +952,23 @@ function PIHelper:Init()
             if instanceType ~= "party" and instanceType ~= "raid" then return end
 
             local text, sender = ...
-            if not text or not sender then return end
+            if not sender then return end
 
             local selectedTarget = whisperDB and whisperDB.piTarget
 
-            -- Direct exact match checks to bypass Secret String indexing entirely
-            if text == "pi me" or text == "PI ME" or text == "Pi me" or text == "Pi Me" then
+            -- Guard: If target is "None", ignore everyone silently
+            if not selectedTarget or selectedTarget == "None" then return end
 
-                -- Guard: If target is "None", ignore everyone silently
-                if not selectedTarget or selectedTarget == "None" then return end
+            -- Force strip realm names for logic and display
+            local shortSender = GetNameOnly(sender)
+            local shortTarget = GetNameOnly(selectedTarget)
 
-                -- Force strip realm names for logic and display
-                local shortSender = GetNameOnly(sender)
-                local shortTarget = GetNameOnly(selectedTarget)
-
-                if shortSender == shortTarget then
-                    -- Recognized target, trigger the screen alert
-                    self:ProcessPIRequest(sender)
-                else
-                    -- Unauthorized player, send the clean whisper-back
-                    local currentTime = GetTime()
-                    if not self.lastWhisperTime[shortSender] or (currentTime - self.lastWhisperTime[shortSender] > 30) then
-                        -- Format: "I'm not tracking you for PI (Current Target: Name)"
-                        local whisperMsg = "I'm not tracking you for PI (Current Target: " .. shortTarget .. ")"
-                        SendChatMessage(whisperMsg, "WHISPER", nil, sender)
-                        self.lastWhisperTime[shortSender] = currentTime
-                    end
-                end
+            -- NEW LOGIC: Bypass Secret Strings entirely.
+            -- We just assume that if our designated target whispers us during a dungeon/raid, they want PI.
+            if shortSender == shortTarget then
+                self:ProcessPIRequest(sender)
             end
+
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             local unitTarget, _, spellID = ...
             if unitTarget == "player" and spellID == 10060 then
