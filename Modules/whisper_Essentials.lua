@@ -923,12 +923,11 @@ local PIHelper = {
     enabled = true,
     isTesting = false,
     lastSoundTime = 0,
-    lastWhisperTime = {},
     soundPath = "Interface\\AddOns\\whisper\\Media\\whisperPI.mp3"
 }
 Essentials.subModules["Power Infusion Helper"] = PIHelper
 
--- Internal helper to HARD strip realm names
+-- Internal helper to HARD strip realm names from the Config target
 local function GetNameOnly(fullName)
     if not fullName then return "Unknown" end
     local name = strsplit("-", fullName)
@@ -951,22 +950,24 @@ function PIHelper:Init()
             local _, instanceType = IsInInstance()
             if instanceType ~= "party" and instanceType ~= "raid" then return end
 
-            local text, sender = ...
-            if not sender then return end
+            -- Grab the 12th argument (GUID) to completely bypass the tainted 'sender' string
+            local _, _, _, _, _, _, _, _, _, _, _, guid = ...
+            if not guid then return end
 
             local selectedTarget = whisperDB and whisperDB.piTarget
-
-            -- Guard: If target is "None", ignore everyone silently
             if not selectedTarget or selectedTarget == "None" then return end
 
-            -- Force strip realm names for logic and display
-            local shortSender = GetNameOnly(sender)
+            -- SECURE EXTRACTION: Ask the server to securely translate the GUID into clean text
+            -- Returns: localizedClass, englishClass, localizedRace, englishRace, sex, name, realm
+            local _, englishClass, _, _, _, shortSender = GetPlayerInfoByGUID(guid)
+            if not shortSender then return end
+
+            -- Clean the realm off our config target
             local shortTarget = GetNameOnly(selectedTarget)
 
-            -- NEW LOGIC: Bypass Secret Strings entirely.
-            -- We just assume that if our designated target whispers us during a dungeon/raid, they want PI.
+            -- If our designated target whispered us AT ALL during combat, trigger PI alert!
             if shortSender == shortTarget then
-                self:ProcessPIRequest(sender)
+                self:ProcessPIRequest(shortSender, englishClass)
             end
 
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -981,12 +982,10 @@ function PIHelper:Init()
     end)
 end
 
-function PIHelper:ProcessPIRequest(playerName)
+function PIHelper:ProcessPIRequest(shortName, classTag)
     if not (CombatAlerts and CombatAlerts.frame) then return end
 
     local currentTime = GetTime()
-    -- HARD STRIP REALM NAME
-    local nameOnly = GetNameOnly(playerName)
 
     -- SOUND TOGGLE LOGIC
     local soundEnabled = true
@@ -994,33 +993,24 @@ function PIHelper:ProcessPIRequest(playerName)
         soundEnabled = whisperDB.essentials["Power Infusion Helper_Sound"]
     end
 
-    -- 1. SPAM PROTECTED CUSTOM SOUND (Respects User Settings)
+    -- SPAM PROTECTED CUSTOM SOUND
     if soundEnabled and (currentTime - self.lastSoundTime) > 5 then
         PlaySoundFile(self.soundPath, "Master")
         self.lastSoundTime = currentTime
     end
 
-    -- 2. TEXT DISPLAY LOGIC
-    local _, classTag = UnitClass(nameOnly)
-    -- Fallback for self-testing or cross-realm unit lookups
-    if not classTag then
-        -- Try looking up the original playerName (with realm) if the short name fails
-        _, classTag = UnitClass(playerName)
-    end
-
+    -- TEXT DISPLAY LOGIC
     local color = (classTag and RAID_CLASS_COLORS[classTag]) or {r=1, g=1, b=1}
     local hex = string.format("ff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
 
     CombatAlerts.animGroup:Stop()
-    -- Displays only the clean name
-    CombatAlerts.text:SetText("Power Infusion on |c" .. hex .. nameOnly .. "|r")
+    CombatAlerts.text:SetText("Power Infusion on |c" .. hex .. shortName .. "|r")
     CombatAlerts.text:SetTextColor(1, 1, 1)
 
-    -- 3. ANIMATION OVERRIDE
+    -- ANIMATION OVERRIDE
     local animations = {CombatAlerts.animGroup:GetAnimations()}
     for _, anim in ipairs(animations) do
         if anim:GetOrder() == 2 then
-            -- Reverted to 8 seconds (no more 9999 permanent testing hold)
             anim:SetDuration(8)
         end
     end
@@ -1039,7 +1029,10 @@ function PIHelper:ToggleTestMode(state)
 
     self.isTesting = state
     if state then
-        self:ProcessPIRequest(UnitName("player"))
+        -- Securely grab your own info for the test
+        local name = UnitName("player")
+        local _, classTag = UnitClass("player")
+        self:ProcessPIRequest(name, classTag)
     else
         -- When test mode is turned off, immediately clear the screen
         if CombatAlerts and CombatAlerts.frame then
