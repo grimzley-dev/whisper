@@ -9,6 +9,7 @@ whisper:RegisterModule("Quest Cleaner", QuestCleaner)
 local eventFrame
 local COLOR_ADDON = "|cff999999"
 local COLOR_RESET = "|r"
+local updateTimer = nil
 
 -- =========================
 -- Core Logic
@@ -47,7 +48,14 @@ function QuestCleaner:Init()
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
         eventFrame:SetScript("OnEvent", function(self, event)
-            QuestCleaner:CleanupTrackedQuests()
+
+            -- Throttle timer bundles simultaneous events into a single execution
+            if not updateTimer then
+                updateTimer = C_Timer.NewTimer(1.0, function()
+                    QuestCleaner:CleanupTrackedQuests()
+                    updateTimer = nil
+                end)
+            end
 
             if event == "QUEST_LOG_UPDATE" then
                 eventFrame:UnregisterEvent("QUEST_LOG_UPDATE")
@@ -62,6 +70,11 @@ end
 
 function QuestCleaner:Disable()
     self.enabled = false
+
+    if updateTimer then
+        updateTimer:Cancel()
+        updateTimer = nil
+    end
 
     -- Simply tell the existing frame to go to sleep. Do not set it to nil.
     if eventFrame then

@@ -92,7 +92,8 @@ SlashCmdList["SHH"] = function(msg)
     local cmd = args[1] or ""
     local target = args[2] or ""
 
-    if cmd == "config" or cmd == "settings" or cmd == "options" then
+    -- OPENS CONFIG PANEL
+    if cmd == "" or cmd == "config" or cmd == "settings" or cmd == "options" then
         if whisper.OpenSettings then
             whisper:OpenSettings()
         else
@@ -103,7 +104,7 @@ SlashCmdList["SHH"] = function(msg)
 
     if cmd == "help" then
         print(COLOR_ADDON .. "whisper" .. COLOR_RESET .. " Commands:")
-        print("  /shh - Show status")
+        print("  /shh - Open config panel")
         print("  /shh enable <module> - Enable module")
         print("  /shh disable <module> - Disable module")
         print("  /shh test <module> - Toggle test mode (e.g., /shh test loot)")
@@ -165,14 +166,5 @@ SlashCmdList["SHH"] = function(msg)
             end
             return
         end
-    end
-
-    -- Status Print
-    print(COLOR_ADDON .. "whisper" .. COLOR_RESET .. " Modules:")
-    for name, module in pairs(whisper.modules) do
-        local enabled = module.enabled
-        local statusColor = enabled and COLOR_ENABLED or COLOR_DISABLED
-        local dName = module.displayName or name
-        print(string.format("  • %s%s%s » %s%s%s", whisper.Style.Colors.White, dName, COLOR_RESET, statusColor, enabled and "ENABLED" or "DISABLED", COLOR_RESET))
     end
 end

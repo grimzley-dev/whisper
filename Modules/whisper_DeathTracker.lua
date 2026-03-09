@@ -17,6 +17,8 @@ local format = string.format
 local GetNumGroupMembers = GetNumGroupMembers
 local IsInRaid = IsInRaid
 local IsInGroup = IsInGroup
+local GetScreenWidth = GetScreenWidth
+local GetScreenHeight = GetScreenHeight
 
 -- Constants
 local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
@@ -161,8 +163,9 @@ function Deaths:UpdateSettings()
     messageFrame:SetSize(600, height)
     messageFrame:SetMaxLines(limit)
 
-    local screenWidth = UIParent:GetWidth()
-    local screenHeight = UIParent:GetHeight()
+    -- Added Fallbacks so /reload math doesn't break if UIParent isn't ready
+    local screenWidth = UIParent:GetWidth() or GetScreenWidth()
+    local screenHeight = UIParent:GetHeight() or GetScreenHeight()
 
     local xPos = (db.offsetX / 100) * screenWidth
     local yPos = (db.offsetY / 100) * screenHeight
@@ -238,6 +241,11 @@ function Deaths:Init()
                 if resetTimer then C_Timer.CancelTimer(resetTimer) end
                 resetTimer = nil
                 Deaths:CheckZone()
+
+                -- The Fix: Re-apply settings on load
+                if event == "PLAYER_ENTERING_WORLD" then
+                    Deaths:UpdateSettings()
+                end
             end
         end)
     end
