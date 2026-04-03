@@ -478,9 +478,30 @@ local function CreateModuleContent(parent, moduleName, module)
         UpdateToggleText()
 
         toggleBtn:SetScript("OnClick", function()
-            module.enabled = not module.enabled
-            if module.enabled and module.Init then module:Init()
-            elseif not module.enabled and module.Disable then module:Disable() end
+            local newState = not module.enabled
+            module.enabled = newState
+
+            -- Sync the database state before initializing so Init() doesn't overwrite it
+            if moduleName == "Death Tracker" then
+                if not whisperDB.deathTracker then whisperDB.deathTracker = {} end
+                whisperDB.deathTracker.enabled = newState
+            elseif moduleName == "Keystones" then
+                if not whisperDB.keystones then whisperDB.keystones = {} end
+                whisperDB.keystones.enabled = newState
+            elseif moduleName == "Loot Announcer" then
+                if not whisperDB.lootAnnouncer then whisperDB.lootAnnouncer = {} end
+                whisperDB.lootAnnouncer.enabled = newState
+            elseif moduleName == "PI Helper" then
+                if not whisperDB.piHelper then whisperDB.piHelper = {} end
+                whisperDB.piHelper.enabled = newState
+            end
+
+            if newState and module.Init then
+                module:Init()
+            elseif not newState and module.Disable then
+                module:Disable()
+            end
+
             UpdateToggleText()
         end)
     end
