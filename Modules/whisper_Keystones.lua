@@ -41,35 +41,56 @@ local WIDTH_COMPACT = 110
 local COMM_PREFIX = "WHISPER_KEYS"
 
 local DUNGEON_DB = {
-    [499] = { abbr = "PSF",   port = 445444 },
-    [500] = { abbr = "ROOK",  port = 445443 },
-    [501] = { abbr = "SV",    port = 445269 },
-    [502] = { abbr = "COT",   port = 445416 },
-    [503] = { abbr = "ARAK",  port = 445417 },
-    [504] = { abbr = "DFC",   port = 445441 },
-    [505] = { abbr = "DAWN",  port = 445414 },
-    [506] = { abbr = "BREW",  port = 445440 },
-    [525] = { abbr = "FLOOD", port = 1216786 },
-    [542] = { abbr = "EDA",   port = 1237215 },
-    [399] = { abbr = "RLP",  port = 393256 }, [400] = { abbr = "NO",   port = 393262 },
-    [401] = { abbr = "AV",   port = 393279 }, [402] = { abbr = "AA",   port = 393273 },
-    [403] = { abbr = "ULD",  port = 393222 }, [404] = { abbr = "NELT", port = 393276 },
-    [405] = { abbr = "BH",   port = 393267 }, [406] = { abbr = "HOI",  port = 393283 },
-    [463] = { abbr = "FALL", port = 424197 }, [464] = { abbr = "RISE", port = 424197 },
+    -- [Midnight]
+    [557] = { abbr = "WS",    port = 1254400 }, -- Windrunner Spire
+    [558] = { abbr = "MT",    port = 1254572 },
+    [559] = { abbr = "NPX",   port = 1254563 }, -- Nexus-Point Xenas
+    [560] = { abbr = "MC",    port = 1254559 }, -- Maisara Caverns
+
+    -- [The War Within]
+    [499] = { abbr = "PSF",   port = 445444 }, [500] = { abbr = "ROOK",  port = 445443 },
+    [501] = { abbr = "SV",    port = 445269 }, [502] = { abbr = "COT",   port = 445416 },
+    [503] = { abbr = "ARAK",  port = 445417 }, [504] = { abbr = "DFC",   port = 445441 },
+    [505] = { abbr = "DAWN",  port = 445414 }, [506] = { abbr = "BREW",  port = 445440 },
+    [525] = { abbr = "FLOOD", port = 1216786 },[542] = { abbr = "EDA",   port = 1237215 },
+
+    -- [Dragonflight]
+    [399] = { abbr = "RLP",   port = 393256 }, [400] = { abbr = "NO",    port = 393262 },
+    [401] = { abbr = "AV",    port = 393279 }, [402] = { abbr = "AA",    port = 393273 },
+    [403] = { abbr = "ULD",   port = 393222 }, [404] = { abbr = "NELT",  port = 393276 },
+    [405] = { abbr = "BH",    port = 393267 }, [406] = { abbr = "HOI",   port = 393283 },
+    [463] = { abbr = "FALL",  port = 424197 }, [464] = { abbr = "RISE",  port = 424197 },
+
+    -- [Shadowlands]
     [375] = { abbr = "MISTS", port = 354464 }, [376] = { abbr = "NW",    port = 354462 },
     [378] = { abbr = "HOA",   port = 354465 }, [382] = { abbr = "TOP",   port = 354467 },
     [391] = { abbr = "STRT",  port = 367416 }, [392] = { abbr = "GMBT",  port = 367416 },
+
+    -- [Battle for Azeroth]
     [244] = { abbr = "AD",    port = 424187 }, [245] = { abbr = "FH",    port = 410071 },
     [247] = { abbr = "ML",    port = {467553, 467555} }, [248] = { abbr = "WM",    port = 424167 },
     [251] = { abbr = "UNDR",  port = 410074 }, [353] = { abbr = "SIEGE", port = {445418, 464256} },
     [370] = { abbr = "WORK",  port = 373274 }, [369] = { abbr = "JUNKY", port = 373274 },
-    [198] = { abbr = "DHT", port = 424163 }, [199] = { abbr = "BRH", port = 424153 },
-    [200] = { abbr = "HOV", port = 393764 }, [206] = { abbr = "NL",  port = 410078 },
-    [210] = { abbr = "COS", port = 393766 },
-    [165] = { abbr = "SBG", port = 159899 }, [168] = { abbr = "EB",  port = 159901 },
-    [166] = { abbr = "GRIM", port = 159900 }, [169] = { abbr = "DOCKS", port = 159896 },
-    [2]   = { abbr = "TJS", port = 131204 }, [438] = { abbr = "VP",  port = 410080 },
-    [456] = { abbr = "TOT", port = 424142 }, [507] = { abbr = "GB",  port = 445424 },
+
+    -- [Legion]
+    [198] = { abbr = "DHT",   port = 424163 }, [199] = { abbr = "BRH",   port = 424153 },
+    [200] = { abbr = "HOV",   port = 393764 }, [206] = { abbr = "NL",    port = 410078 },
+    [210] = { abbr = "COS",   port = 393766 }, [239] = { abbr = "SEAT",  port = 1254551 },
+
+    -- [Warlords of Draenor]
+    [165] = { abbr = "SBG",   port = 159899 }, [168] = { abbr = "EB",    port = 159901 },
+    [166] = { abbr = "GRIM",  port = 159900 }, [169] = { abbr = "DOCKS", port = 159896 },
+    [161] = { abbr = "SR",    port = 159898 },
+
+    -- [Mists of Pandaria]
+    [2]   = { abbr = "TJS",   port = 131204 },
+
+    -- [Cataclysm]
+    [438] = { abbr = "VP",    port = 410080 }, [456] = { abbr = "TOT",   port = 424142 },
+    [507] = { abbr = "GB",    port = 445424 },
+
+    -- [Wrath of the Lich King]
+    [556] = { abbr = "POS",   port = 1254555 },
 }
 
 local KeystoneManager = { partyData = {} }
@@ -638,10 +659,13 @@ function Interface:UpdatePosition()
 end
 
 function Keystones:Init()
-    self.enabled = true
     if not whisperDB.keystones then whisperDB.keystones = {} end
     local db = whisperDB.keystones
     local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+
+    -- Sync the module state with your saved variables
+    if db.enabled == nil then db.enabled = true end
+    self.enabled = db.enabled
 
     local DB_VERSION = 1
     if not db.version or db.version < DB_VERSION then
@@ -657,6 +681,9 @@ function Keystones:Init()
     if db.transparentMode == nil then db.transparentMode = false end
     if db.offsetX == nil then db.offsetX = -(sw * 0.499) end
     if db.offsetY == nil then db.offsetY = (sh * 0.08) end
+
+    -- If disabled in config, stop initialization here so events/frames aren't built
+    if not self.enabled then return end
 
     Interface:Create()
     Interface:UpdatePosition()
@@ -699,7 +726,22 @@ function Keystones:Init()
             elseif event == "CHALLENGE_MODE_START" then
                 isInActiveChallenge = true
                 Interface:Refresh()
-            elseif event == "CHALLENGE_MODE_COMPLETED" or event == "CHALLENGE_MODE_RESET" then
+            elseif event == "CHALLENGE_MODE_COMPLETED" then
+                isInActiveChallenge = false
+                Interface:Refresh()
+
+                -- Give players 5 seconds to loot the Challenger's Cache, then request new keys
+                C_Timer.After(5, function()
+                    KeystoneManager:ScanOwnKey()
+                    if IsInGroup() then Comms:Request() end
+                end)
+
+                -- Fire a backup request 15 seconds later in case someone was slow to loot
+                C_Timer.After(15, function()
+                    if IsInGroup() then Comms:Request() end
+                end)
+
+            elseif event == "CHALLENGE_MODE_RESET" then
                 isInActiveChallenge = false
                 Interface:Refresh()
             elseif event == "PLAYER_REGEN_ENABLED" then
@@ -747,10 +789,25 @@ function Keystones:Disable()
     end
 
     if whisperDB.keystones then
+        whisperDB.keystones.enabled = false -- Lock the disabled state into the DB
         whisperDB.keystones.partyCache = KeystoneManager.partyData
     end
 
     if self.isTestMode then
         self:ToggleTestMode()
+    end
+end
+
+SLASH_WHISPERMAPS1 = "/cmaps"
+SlashCmdList["WHISPERMAPS"] = function()
+    local maps = C_ChallengeMode.GetMapTable()
+    if maps then
+        print("Midnight Season 1 Challenge Map IDs:")
+        for _, mapID in ipairs(maps) do
+            local name = C_ChallengeMode.GetMapUIInfo(mapID)
+            print(mapID, "-", name)
+        end
+    else
+        print("No Challenge Maps found.")
     end
 end
