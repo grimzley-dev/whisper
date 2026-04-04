@@ -9,6 +9,8 @@ local C_ChallengeMode = C_ChallengeMode
 local C_MythicPlus = C_MythicPlus
 local C_ClassColor = C_ClassColor
 local C_Spell = C_Spell
+local C_Container = C_Container
+local C_Item = C_Item
 local UnitName = UnitName
 local UnitClass = UnitClass
 local UnitInParty = UnitInParty
@@ -28,8 +30,10 @@ local tinsert = tinsert
 local table_sort = table.sort
 local pairs = pairs
 local type = type
+local pcall = pcall
 
 local ORL = LibStub and LibStub:GetLibrary("LibOpenRaid-1.0", true)
+local LibKeystone = LibStub and LibStub:GetLibrary("LibKeystone", true)
 
 local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
@@ -132,44 +136,77 @@ end
 
 function KeystoneManager:UpdateEntry(sender, mapID, level)
     if not sender or not mapID or not level then return end
+    if mapID == 0 or level == 0 then return end
+
     local fullName = sender
     if not string.find(fullName, "-") then
         fullName = fullName .. "-" .. GetRealmName()
     end
-    local _, classFilename = UnitClass(sender)
+
+    local shortName = fullName:match("(.+)-") or fullName
+
+    -- Safe cross-realm class check
+    local _, classFilename = UnitClass(fullName)
+    if not classFilename then _, classFilename = UnitClass(shortName) end
+
     local classColor = C_ClassColor.GetClassColor(classFilename or "PRIEST")
+    local myFullName = UnitName("player") .. "-" .. GetRealmName()
+    local isMe = (fullName == myFullName)
+
     self.partyData[fullName] = {
         mapID = tonumber(mapID),
         level = tonumber(level),
-        displayName = sender:match("(.+)-") or sender,
+        displayName = shortName,
         classColor = classColor,
-        isPlayer = UnitIsUnit(sender, "player")
+        isPlayer = isMe
     }
     Interface:Refresh()
 end
 
-function KeystoneManager:ScanOpenRaid()
-    if not ORL then return end
-    for i = 1, 4 do
-        local unitID = "party"..i
-        if UnitExists(unitID) then
-            local name, realm = UnitName(unitID)
-            if not realm then realm = GetRealmName() end
-            local fullName = name .. "-" .. realm
-            local info = ORL.GetKeystoneInfo(fullName)
-            if not info then info = ORL.GetKeystoneInfo(name) end
-            if info and info.challengeMapID and info.challengeMapID > 0 then
-                self:UpdateEntry(fullName, info.challengeMapID, info.level)
-            end
-        end
+function KeystoneManager:RequestKeys()
+    if not IsInGroup() then return end
+
+    -- 1. Native whisper comms
+    SendAddonMessage(COMM_PREFIX, "WHISPER:REQ", "PARTY")
+
+    -- 2. Details/WeakAuras fallback
+    if ORL then
+        pcall(function() ORL.RequestKeystoneDataFromParty() end)
+    end
+
+    -- 3. BigWigs/Astral Keys fallback
+    if LibKeystone then
+        pcall(function() LibKeystone.Request("PARTY") end)
     end
 end
 
 function KeystoneManager:ScanOwnKey()
     local mapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
     local level = C_MythicPlus.GetOwnedKeystoneLevel()
-    if mapID and level then
-        local myName = UnitName("player")
+
+    -- BigWigs Brute-Force Bag Scan Fallback
+    if not mapID or not level or mapID == 0 or level == 0 then
+        for bag = 0, 4 do
+            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                local itemID = C_Container.GetContainerItemID(bag, slot)
+                if itemID and C_Item.IsItemKeystoneByID(itemID) then
+                    local itemLink = C_Container.GetContainerItemLink(bag, slot)
+                    if itemLink then
+                        local strMap, strLevel = itemLink:match("Hkeystone:(%d+):(%d+)")
+                        if strMap and strLevel then
+                            mapID = tonumber(strMap)
+                            level = tonumber(strLevel)
+                            break
+                        end
+                    end
+                end
+            end
+            if mapID and level and mapID > 0 then break end
+        end
+    end
+
+    if mapID and level and mapID > 0 and level > 0 then
+        local myName = UnitName("player") .. "-" .. GetRealmName()
         self:UpdateEntry(myName, mapID, level)
         Comms:Broadcast(mapID, level)
     end
@@ -177,10 +214,22 @@ end
 
 function KeystoneManager:CleanParty()
     if Keystones.isTestMode then return end
+
+    local validMembers = {}
     local myFullName = UnitName("player") .. "-" .. GetRealmName()
+    validMembers[myFullName] = true
+
+    for i = 1, 4 do
+        local unitID = "party" .. i
+        if UnitExists(unitID) then
+            local name, realm = UnitName(unitID)
+            if not realm or realm == "" then realm = GetRealmName() end
+            validMembers[name .. "-" .. realm] = true
+        end
+    end
+
     for fullName, _ in pairs(self.partyData) do
-        local shortName = fullName:match("(.+)-")
-        if fullName ~= myFullName and not UnitInParty(shortName) then
+        if not validMembers[fullName] then
             self.partyData[fullName] = nil
         end
     end
@@ -191,15 +240,6 @@ function Comms:Broadcast(mapID, level)
     if not IsInGroup() then return end
     local payload = format("WHISPER:KEY:%d:%d", mapID, level)
     SendAddonMessage(COMM_PREFIX, payload, "PARTY")
-end
-
-function Comms:Request()
-    if not IsInGroup() then return end
-    SendAddonMessage(COMM_PREFIX, "WHISPER:REQ", "PARTY")
-    if ORL then
-        pcall(function() ORL.RequestKeystoneDataFromParty() end)
-        KeystoneManager:ScanOpenRaid()
-    end
 end
 
 function Comms:OnMessage(_, prefix, msg, _, sender)
@@ -224,7 +264,7 @@ local function HookExternalKeys()
                 if cmdName and SlashCmdList[cmdName] then
                     hooksecurefunc(SlashCmdList, cmdName, function()
                         if not Keystones.enabled then return end
-                        KeystoneManager:ScanOpenRaid()
+                        KeystoneManager:RequestKeys()
                         Interface:Refresh()
                     end)
                     return
@@ -270,7 +310,7 @@ function Keystones:ToggleTestMode()
     else
         KeystoneManager.partyData = whisperDB.keystones.partyCache
         KeystoneManager:ScanOwnKey()
-        if IsInGroup() then Comms:Request() end
+        if IsInGroup() then KeystoneManager:RequestKeys() end
         Interface:Refresh()
     end
 end
@@ -353,7 +393,7 @@ local function CreateKeystoneRow(parent, index)
 
     secure:HookScript("PostClick", function(self, button)
         if button == "RightButton" then
-            KeystoneManager:ScanOpenRaid()
+            KeystoneManager:RequestKeys()
             Interface:Refresh()
         end
     end)
@@ -663,7 +703,6 @@ function Keystones:Init()
     local db = whisperDB.keystones
     local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
 
-    -- Sync the module state with your saved variables
     if db.enabled == nil then db.enabled = true end
     self.enabled = db.enabled
 
@@ -682,7 +721,6 @@ function Keystones:Init()
     if db.offsetX == nil then db.offsetX = -(sw * 0.499) end
     if db.offsetY == nil then db.offsetY = (sh * 0.08) end
 
-    -- If disabled in config, stop initialization here so events/frames aren't built
     if not self.enabled then return end
 
     Interface:Create()
@@ -696,6 +734,17 @@ function Keystones:Init()
             KeystoneManager:UpdateEntry(unitName, info.challengeMapID, info.level)
         end
         ORL.RegisterCallback(addonName, "KeystoneUpdate", OnKeystoneUpdate)
+    end
+
+    if LibKeystone then
+        local function OnLibKeystoneUpdate(keyLevel, keyMap, playerRating, playerName, channel)
+            if not Keystones.enabled then return end
+            if channel == "PARTY" and keyMap and keyMap > 0 then
+                KeystoneManager:UpdateEntry(playerName, keyMap, keyLevel)
+            end
+        end
+        local LibKeystoneTable = {}
+        LibKeystone.Register(LibKeystoneTable, OnLibKeystoneUpdate)
     end
 
     HookExternalKeys()
@@ -717,11 +766,12 @@ function Keystones:Init()
                 end
             elseif event == "GROUP_ROSTER_UPDATE" then
                 KeystoneManager:CleanParty()
-                C_Timer.After(1, function() Comms:Request() end)
+                C_Timer.After(1, function() KeystoneManager:RequestKeys() end)
             elseif event == "PLAYER_ENTERING_WORLD" then
                 isInActiveChallenge = C_ChallengeMode.IsChallengeModeActive()
                 KeystoneManager:CleanParty()
-                Comms:Request()
+                KeystoneManager:ScanOwnKey()
+                KeystoneManager:RequestKeys()
                 Interface:Refresh()
             elseif event == "CHALLENGE_MODE_START" then
                 isInActiveChallenge = true
@@ -733,12 +783,12 @@ function Keystones:Init()
                 -- Give players 5 seconds to loot the Challenger's Cache, then request new keys
                 C_Timer.After(5, function()
                     KeystoneManager:ScanOwnKey()
-                    if IsInGroup() then Comms:Request() end
+                    KeystoneManager:RequestKeys()
                 end)
 
                 -- Fire a backup request 15 seconds later in case someone was slow to loot
                 C_Timer.After(15, function()
-                    if IsInGroup() then Comms:Request() end
+                    KeystoneManager:RequestKeys()
                 end)
 
             elseif event == "CHALLENGE_MODE_RESET" then
@@ -789,7 +839,7 @@ function Keystones:Disable()
     end
 
     if whisperDB.keystones then
-        whisperDB.keystones.enabled = false -- Lock the disabled state into the DB
+        whisperDB.keystones.enabled = false
         whisperDB.keystones.partyCache = KeystoneManager.partyData
     end
 
