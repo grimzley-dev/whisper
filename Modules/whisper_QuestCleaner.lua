@@ -6,10 +6,8 @@ whisper:RegisterModule("Quest Cleaner", QuestCleaner)
 -- =========================
 -- Locals
 -- =========================
-local eventFrame
 local COLOR_ADDON = "|cff999999"
 local COLOR_RESET = "|r"
-local updateTimer = nil
 
 -- =========================
 -- Core Logic
@@ -44,40 +42,40 @@ end
 function QuestCleaner:Init()
     self.enabled = true
 
-    -- Safeguard: Only create the frame if it doesn't already exist
-    if not eventFrame then
-        eventFrame = CreateFrame("Frame")
-        eventFrame:SetScript("OnEvent", function(self, event)
+    -- Safeguard: Only create the frame if it doesn't already exist on the module
+    if not self.eventFrame then
+        self.eventFrame = CreateFrame("Frame")
+        self.eventFrame:SetScript("OnEvent", function(_, event)
 
             -- Throttle timer bundles simultaneous events into a single execution
-            if not updateTimer then
-                updateTimer = C_Timer.NewTimer(1.0, function()
-                    QuestCleaner:CleanupTrackedQuests()
-                    updateTimer = nil
+            if not self.updateTimer then
+                self.updateTimer = C_Timer.NewTimer(1.0, function()
+                    self:CleanupTrackedQuests()
+                    self.updateTimer = nil
                 end)
             end
 
             if event == "QUEST_LOG_UPDATE" then
-                eventFrame:UnregisterEvent("QUEST_LOG_UPDATE")
+                self.eventFrame:UnregisterEvent("QUEST_LOG_UPDATE")
             end
         end)
     end
 
     -- Register events every time it is turned on
-    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    eventFrame:RegisterEvent("QUEST_LOG_UPDATE")
+    self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    self.eventFrame:RegisterEvent("QUEST_LOG_UPDATE")
 end
 
 function QuestCleaner:Disable()
     self.enabled = false
 
-    if updateTimer then
-        updateTimer:Cancel()
-        updateTimer = nil
+    if self.updateTimer then
+        self.updateTimer:Cancel()
+        self.updateTimer = nil
     end
 
     -- Simply tell the existing frame to go to sleep. Do not set it to nil.
-    if eventFrame then
-        eventFrame:UnregisterAllEvents()
+    if self.eventFrame then
+        self.eventFrame:UnregisterAllEvents()
     end
 end

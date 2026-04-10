@@ -13,9 +13,6 @@ local format = string.format
 local abs = math.abs
 local pcall = pcall
 
-local button, panel, eventFrame
-local statusTimer
-local resultStatusTimer
 local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
 
@@ -157,43 +154,43 @@ local function FormatCurrency(copper)
 end
 
 function Mail:Init()
-    if not eventFrame then
-        eventFrame = CreateFrame("Frame")
-        eventFrame:SetScript("OnEvent", function(_, event, ...)
+    if not self.eventFrame then
+        self.eventFrame = CreateFrame("Frame")
+        self.eventFrame:SetScript("OnEvent", function(_, event, ...)
             if event == "PLAYER_MONEY" then
-                Mail:OnPlayerMoney()
+                self:OnPlayerMoney()
             elseif event == "MAIL_FAILED" then
-                Mail:OnMailFailed()
+                self:OnMailFailed()
             end
         end)
     end
-    eventFrame:RegisterEvent("PLAYER_MONEY")
-    eventFrame:RegisterEvent("MAIL_FAILED")
+    self.eventFrame:RegisterEvent("PLAYER_MONEY")
+    self.eventFrame:RegisterEvent("MAIL_FAILED")
 end
 
 function Mail:Disable()
     self.enabled = false
-    if panel then panel:Hide() end
-    if eventFrame then
-        eventFrame:UnregisterAllEvents()
+    if self.panel then self.panel:Hide() end
+    if self.eventFrame then
+        self.eventFrame:UnregisterAllEvents()
     end
-    if statusTimer then statusTimer:Cancel(); statusTimer = nil end
-    if resultStatusTimer then resultStatusTimer:Cancel(); resultStatusTimer = nil end
+    if self.statusTimer then self.statusTimer:Cancel(); self.statusTimer = nil end
+    if self.resultStatusTimer then self.resultStatusTimer:Cancel(); self.resultStatusTimer = nil end
     self._queue = nil
     self._sending = false
     self._index = nil
 end
 
 function Mail:ResetPanel()
-    if not panel then return end
-    if statusTimer then statusTimer:Cancel(); statusTimer = nil end
-    if resultStatusTimer then resultStatusTimer:Cancel(); resultStatusTimer = nil end
+    if not self.panel then return end
+    if self.statusTimer then self.statusTimer:Cancel(); self.statusTimer = nil end
+    if self.resultStatusTimer then self.resultStatusTimer:Cancel(); self.resultStatusTimer = nil end
     self._queue = nil
     self._sending = false
     self._index = nil
 
-    local p = panel
-    panel = nil
+    local p = self.panel
+    self.panel = nil
 
     if p:IsVisible() then
         FadeOut(p, 0.1)
@@ -204,58 +201,58 @@ function Mail:ResetPanel()
 end
 
 function Mail:TogglePanel(anchorFrame)
-    if panel then
-        if panel:IsShown() then
-            FadeOut(panel, 0.1)
+    if self.panel then
+        if self.panel:IsShown() then
+            FadeOut(self.panel, 0.1)
         else
             if anchorFrame then
-                panel:SetParent(anchorFrame)
-                panel:ClearAllPoints()
-                panel:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", 2, 0)
+                self.panel:SetParent(anchorFrame)
+                self.panel:ClearAllPoints()
+                self.panel:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", 2, 0)
             end
-            FadeIn(panel, 0.1)
+            FadeIn(self.panel, 0.1)
         end
         return
     end
 
-    panel = CreateFrame("Frame", "whisperMailPanel", UIParent, "BackdropTemplate")
-    local parentHeight = MailFrame:GetHeight() or 424
-    local parentWidth = MailFrame:GetWidth() or 384
-    panel:SetSize(parentWidth, parentHeight)
+    self.panel = CreateFrame("Frame", "whisperMailPanel", UIParent, "BackdropTemplate")
+    local parentHeight = MailFrame and MailFrame:GetHeight() or 424
+    local parentWidth = MailFrame and MailFrame:GetWidth() or 384
+    self.panel:SetSize(parentWidth, parentHeight)
 
     if anchorFrame then
-        panel:SetParent(anchorFrame)
-        panel:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", 2, 0)
+        self.panel:SetParent(anchorFrame)
+        self.panel:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", 2, 0)
     else
-        panel:SetPoint("CENTER")
+        self.panel:SetPoint("CENTER")
     end
 
-    panel:SetFrameStrata("FULLSCREEN_DIALOG")
-    panel:SetBackdrop({
+    self.panel:SetFrameStrata("FULLSCREEN_DIALOG")
+    self.panel:SetBackdrop({
         bgFile = "Interface/Buttons/WHITE8X8",
         edgeFile = "Interface/Buttons/WHITE8X8",
         edgeSize = 1,
     })
-    panel:SetBackdropColor(8/255, 8/255, 8/255, 0.8)
-    panel:SetBackdropBorderColor(0, 0, 0, 1)
+    self.panel:SetBackdropColor(8/255, 8/255, 8/255, 0.8)
+    self.panel:SetBackdropBorderColor(0, 0, 0, 1)
 
-    tinsert(UISpecialFrames, panel:GetName())
+    tinsert(UISpecialFrames, self.panel:GetName())
 
-    local subHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local subHeader = self.panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     subHeader:SetPoint("TOPLEFT", 20, -20)
     subHeader:SetText("Mail")
     subHeader:SetFont(STANDARD_FONT, 20, "OUTLINE")
     subHeader:SetTextColor(1, 1, 1)
 
-    Mail:CreateLogo(panel)
-    Mail:CreateCloseButton(panel)
-    Mail:CreateScrollArea(panel)
-    Mail:CreatePreviewPane(panel)
-    Mail:CreateResultPane(panel)
-    Mail:CreateControlButtons(panel)
-    Mail:CreateProgressBar(panel)
+    self:CreateLogo(self.panel)
+    self:CreateCloseButton(self.panel)
+    self:CreateScrollArea(self.panel)
+    self:CreatePreviewPane(self.panel)
+    self:CreateResultPane(self.panel)
+    self:CreateControlButtons(self.panel)
+    self:CreateProgressBar(self.panel)
 
-    FadeIn(panel, 0.1)
+    FadeIn(self.panel, 0.1)
 end
 
 function Mail:CreateLogo(parent)
@@ -286,7 +283,7 @@ function Mail:CreateCloseButton(parent)
         if self:IsMouseOver() then self.Texture:SetVertexColor(0.5, 0.5, 0.5) else self.Texture:SetVertexColor(1, 1, 1) end
     end)
 
-    close:SetScript("OnClick", function() Mail:ResetPanel() end)
+    close:SetScript("OnClick", function() self:ResetPanel() end)
 end
 
 function Mail:CreateScrollArea(parent)
@@ -306,18 +303,18 @@ function Mail:CreateScrollArea(parent)
     editBox:SetJustifyH("LEFT")
     editBox:SetJustifyV("TOP")
 
-    panel.scrollFrame = scroll
-    panel.editBox = editBox
+    self.panel.scrollFrame = scroll
+    self.panel.editBox = editBox
     scroll:SetScrollChild(editBox)
     if scroll.ScrollBar then scroll.ScrollBar:Hide() end
 
-    scroll:SetScript("OnMouseWheel", function(self, delta)
-        local child = self:GetScrollChild()
+    scroll:SetScript("OnMouseWheel", function(frame, delta)
+        local child = frame:GetScrollChild()
         if not child then return end
-        local maxScroll = math.max(child:GetHeight() - self:GetHeight(), 0)
-        local offset = self:GetVerticalScroll() or 0
+        local maxScroll = math.max(child:GetHeight() - frame:GetHeight(), 0)
+        local offset = frame:GetVerticalScroll() or 0
         local newOffset = math.min(math.max(offset - (delta * 20), 0), maxScroll)
-        self:SetVerticalScroll(newOffset)
+        frame:SetVerticalScroll(newOffset)
     end)
 end
 
@@ -361,11 +358,11 @@ function Mail:CreatePreviewPane(parent)
     txtBody:SetPoint("TOPLEFT", preview, "TOPLEFT", 10, -160)
     txtBody:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -10, 0)
 
-    panel.preview = preview
-    panel.preview.recipient = txtTo
-    panel.preview.amount = txtAmount
-    panel.preview.subject = txtSubject
-    panel.preview.body = txtBody
+    self.panel.preview = preview
+    self.panel.preview.recipient = txtTo
+    self.panel.preview.amount = txtAmount
+    self.panel.preview.subject = txtSubject
+    self.panel.preview.body = txtBody
 end
 
 function Mail:CreateResultPane(parent)
@@ -399,47 +396,47 @@ function Mail:CreateResultPane(parent)
     content:SetSize(scroll:GetWidth(), 500)
     scroll:SetScrollChild(content)
 
-    scroll:SetScript("OnMouseWheel", function(self, delta)
-        local child = self:GetScrollChild()
+    scroll:SetScript("OnMouseWheel", function(frame, delta)
+        local child = frame:GetScrollChild()
         if not child then return end
-        local maxScroll = math.max(child:GetHeight() - self:GetHeight(), 0)
-        local offset = self:GetVerticalScroll() or 0
+        local maxScroll = math.max(child:GetHeight() - frame:GetHeight(), 0)
+        local offset = frame:GetVerticalScroll() or 0
         local newOffset = math.min(math.max(offset - (delta * 20), 0), maxScroll)
-        self:SetVerticalScroll(newOffset)
+        frame:SetVerticalScroll(newOffset)
     end)
 
     result.footerStatus = footerStatus
     result.scroll = scroll
     result.content = content
-    panel.result = result
+    self.panel.result = result
 end
 
 function Mail:CreateControlButtons(parent)
     local send = CreateStyledButton(parent, "Parse & Queue", 140, 28)
     send:SetPoint("BOTTOM", 0, 12)
-    panel.sendButton = send
+    self.panel.sendButton = send
 
     send:SetScript("OnClick", function()
-        if panel.result:IsShown() then
-            Mail._queue = nil
-            Mail._sending = false
-            Mail._index = nil
-            panel.result:Hide()
-            panel.scrollFrame:Show()
-            panel.sendButton:SetText("Parse & Queue")
-            panel.sendButton:ClearAllPoints()
-            panel.sendButton:SetPoint("BOTTOM", 0, 12)
+        if self.panel.result:IsShown() then
+            self._queue = nil
+            self._sending = false
+            self._index = nil
+            self.panel.result:Hide()
+            self.panel.scrollFrame:Show()
+            self.panel.sendButton:SetText("Parse & Queue")
+            self.panel.sendButton:ClearAllPoints()
+            self.panel.sendButton:SetPoint("BOTTOM", 0, 12)
         else
-            Mail:HandleSendButton()
+            self:HandleSendButton()
         end
     end)
 
     local clear = CreateStyledButton(parent, "Clear", 140, 28)
     clear:Hide()
-    panel.clearButton = clear
+    self.panel.clearButton = clear
 
     clear:SetScript("OnClick", function()
-        Mail:FinishQueue(true)
+        self:FinishQueue(true)
     end)
 end
 
@@ -470,58 +467,58 @@ function Mail:CreateProgressBar(parent)
     bar.text = text
 
     bar.targetValue = 0
-    bar:SetScript("OnUpdate", function(self, elapsed)
-        local current = self:GetValue()
-        local target = self.targetValue or current
+    bar:SetScript("OnUpdate", function(frame, elapsed)
+        local current = frame:GetValue()
+        local target = frame.targetValue or current
         if abs(current - target) > 0.01 then
             local change = (target - current) * (elapsed * 8)
             if abs(target - current) < 0.05 then
-                self:SetValue(target)
+                frame:SetValue(target)
             else
-                self:SetValue(current + change)
+                frame:SetValue(current + change)
             end
         elseif current ~= target then
-            self:SetValue(target)
+            frame:SetValue(target)
         end
     end)
 
-    panel.progressBar = bar
-    panel.progressBar:Hide()
+    self.panel.progressBar = bar
+    self.panel.progressBar:Hide()
 
-    panel.statusText = parent:CreateFontString(nil, "OVERLAY")
-    panel.statusText:SetFont(STANDARD_FONT, 13, "OUTLINE")
-    panel.statusText:SetPoint("BOTTOM", bar, "TOP", 0, 5)
+    self.panel.statusText = parent:CreateFontString(nil, "OVERLAY")
+    self.panel.statusText:SetFont(STANDARD_FONT, 13, "OUTLINE")
+    self.panel.statusText:SetPoint("BOTTOM", bar, "TOP", 0, 5)
 end
 
 function Mail:SetStatus(text, timeout)
-    if statusTimer then statusTimer:Cancel(); statusTimer = nil end
-    panel.statusText:SetText(text)
+    if self.statusTimer then self.statusTimer:Cancel(); self.statusTimer = nil end
+    self.panel.statusText:SetText(text)
     if timeout and timeout > 0 then
-        statusTimer = C_Timer.NewTimer(timeout, function()
-            panel.statusText:SetText("")
-            statusTimer = nil
+        self.statusTimer = C_Timer.NewTimer(timeout, function()
+            self.panel.statusText:SetText("")
+            self.statusTimer = nil
         end)
     end
 end
 
 function Mail:SetResultStatus(text, timeout)
-    if resultStatusTimer then resultStatusTimer:Cancel(); resultStatusTimer = nil end
-    panel.result.footerStatus:SetText(text)
+    if self.resultStatusTimer then self.resultStatusTimer:Cancel(); self.resultStatusTimer = nil end
+    self.panel.result.footerStatus:SetText(text)
     if timeout and timeout > 0 then
-        resultStatusTimer = C_Timer.NewTimer(timeout, function()
-            panel.result.footerStatus:SetText("")
-            resultStatusTimer = nil
+        self.resultStatusTimer = C_Timer.NewTimer(timeout, function()
+            self.panel.result.footerStatus:SetText("")
+            self.resultStatusTimer = nil
         end)
     end
 end
 
 function Mail:HandleSendButton()
     if not self._queue then
-        Mail:ProcessString(panel.editBox:GetText())
+        self:ProcessString(self.panel.editBox:GetText())
         return
     end
     if not self._sending then
-        Mail:SendCurrentMail()
+        self:SendCurrentMail()
     end
 end
 
@@ -544,7 +541,7 @@ function Mail:ProcessString(text)
         if line ~= "" then
             local name, amount, subject, body = line:match("^([^:]+):([^:]+):([^:]+):(.+)$")
             if not (name and amount and subject and body) then
-                Mail:SetStatus(HEX_RED .. "Error Line " .. i .. ": Invalid Format (Name:Amount:Subject:Body)|r", 4)
+                self:SetStatus(HEX_RED .. "Error Line " .. i .. ": Invalid Format (Name:Amount:Subject:Body)|r", 4)
                 return
             end
             name = name:match("^%s*(.-)%s*$")
@@ -552,75 +549,75 @@ function Mail:ProcessString(text)
             subject = subject:match("^%s*(.-)%s*$")
             body = body:match("^%s*(.-)%s*$")
             if name:match("%s") or name:gsub("-", ""):match("[:;,%p]") then
-                 Mail:SetStatus(HEX_RED .. "Error Line " .. i .. ": Invalid Name|r", 4)
+                 self:SetStatus(HEX_RED .. "Error Line " .. i .. ": Invalid Name|r", 4)
                  return
             end
             if subject:match(":%s*[%d%.]+%s*:") or body:match(":%s*[%d%.]+%s*:") then
-                Mail:SetStatus(HEX_RED .. "Error Line " .. i .. ": Detects merged lines|r", 4)
+                self:SetStatus(HEX_RED .. "Error Line " .. i .. ": Detects merged lines|r", 4)
                 return
             end
             if #subject > 64 or #body > 500 then
-                Mail:SetStatus(HEX_RED .. "Error Line " .. i .. ": Length Limits Exceeded|r", 4)
+                self:SetStatus(HEX_RED .. "Error Line " .. i .. ": Length Limits Exceeded|r", 4)
                 return
             end
-            local copper = Mail:GoldStringToCopper(amount)
+            local copper = self:GoldStringToCopper(amount)
             if copper <= 0 then
-                Mail:SetStatus(HEX_RED .. "Error Line " .. i .. ": Invalid Amount|r", 4)
+                self:SetStatus(HEX_RED .. "Error Line " .. i .. ": Invalid Amount|r", 4)
                 return
             end
             queue[#queue+1] = { target = name, money = copper, subject = subject, body = body, sent = false }
         end
     end
     if #queue == 0 then
-        Mail:SetStatus(HEX_RED .. "Error: Input is empty.|r", 4)
+        self:SetStatus(HEX_RED .. "Error: Input is empty.|r", 4)
         return
     end
-    Mail:StartQueue(queue)
+    self:StartQueue(queue)
 end
 
 function Mail:StartQueue(queue)
     self._queue = queue
     self._index = 1
     self._sending = false
-    Mail:SetStatus("")
-    panel.result:Hide()
-    panel.scrollFrame:Hide()
-    panel.preview:Show()
+    self:SetStatus("")
+    self.panel.result:Hide()
+    self.panel.scrollFrame:Hide()
+    self.panel.preview:Show()
 
-    panel.clearButton:ClearAllPoints()
-    panel.clearButton:SetPoint("BOTTOMRIGHT", panel, "BOTTOM", -5, 12)
-    panel.clearButton:Show()
-    panel.clearButton:Enable()
-    panel.clearButton.textColor = COLOR_RED
+    self.panel.clearButton:ClearAllPoints()
+    self.panel.clearButton:SetPoint("BOTTOMRIGHT", self.panel, "BOTTOM", -5, 12)
+    self.panel.clearButton:Show()
+    self.panel.clearButton:Enable()
+    self.panel.clearButton.textColor = COLOR_RED
 
     local cr, cg, cb = unpack(COLOR_RED)
-    panel.clearButton:GetFontString():SetTextColor(cr, cg, cb)
+    self.panel.clearButton:GetFontString():SetTextColor(cr, cg, cb)
 
-    panel.sendButton:SetText("Send")
-    panel.sendButton:ClearAllPoints()
-    panel.sendButton:SetPoint("BOTTOMLEFT", panel, "BOTTOM", 5, 12)
-    panel.sendButton.textColor = COLOR_GREEN
-    panel.sendButton:Disable()
+    self.panel.sendButton:SetText("Send")
+    self.panel.sendButton:ClearAllPoints()
+    self.panel.sendButton:SetPoint("BOTTOMLEFT", self.panel, "BOTTOM", 5, 12)
+    self.panel.sendButton.textColor = COLOR_GREEN
+    self.panel.sendButton:Disable()
 
     C_Timer.After(1.5, function()
-        if panel.sendButton then
-            panel.sendButton:Enable()
+        if self.panel and self.panel.sendButton then
+            self.panel.sendButton:Enable()
             local gr, gg, gb = unpack(COLOR_GREEN)
-            panel.sendButton:GetFontString():SetTextColor(gr, gg, gb)
+            self.panel.sendButton:GetFontString():SetTextColor(gr, gg, gb)
         end
     end)
 
-    panel.progressBar:SetMinMaxValues(0, #queue)
-    panel.progressBar:SetValue(0)
-    panel.progressBar.targetValue = 0
-    panel.progressBar.text:SetText(format("1 / %d", #queue))
-    panel.progressBar:Show()
+    self.panel.progressBar:SetMinMaxValues(0, #queue)
+    self.panel.progressBar:SetValue(0)
+    self.panel.progressBar.targetValue = 0
+    self.panel.progressBar.text:SetText(format("1 / %d", #queue))
+    self.panel.progressBar:Show()
 
-    Mail:ShowCurrentMail()
+    self:ShowCurrentMail()
 end
 
 function Mail:PopulateResults()
-    local content = panel.result.content
+    local content = self.panel.result.content
     if content.lines then for _, obj in ipairs(content.lines) do obj:Hide() end end
     content.lines = {}
     local sentList, skippedList = {}, {}
@@ -652,40 +649,40 @@ end
 
 function Mail:FinishQueue(wasCleared)
     self._sending = false
-    Mail:SetStatus("")
+    self:SetStatus("")
 
-    panel.preview:Hide()
-    panel.editBox:SetText("")
-    panel.progressBar:Hide()
-    panel.result:Show()
+    self.panel.preview:Hide()
+    self.panel.editBox:SetText("")
+    self.panel.progressBar:Hide()
+    self.panel.result:Show()
 
     if wasCleared then
-        Mail:SetResultStatus(HEX_RED .. "Queue Cleared|r", 4)
+        self:SetResultStatus(HEX_RED .. "Queue Cleared|r", 4)
     else
-        Mail:SetResultStatus(HEX_GREEN .. "All Mail Sent|r", 4)
+        self:SetResultStatus(HEX_GREEN .. "All Mail Sent|r", 4)
     end
 
-    Mail:PopulateResults()
-    panel.sendButton:SetText("New Mail")
-    panel.sendButton:ClearAllPoints()
-    panel.sendButton:SetPoint("BOTTOM", 0, 12)
-    panel.sendButton.textColor = COLOR_WHITE
-    panel.sendButton:Enable()
+    self:PopulateResults()
+    self.panel.sendButton:SetText("New Mail")
+    self.panel.sendButton:ClearAllPoints()
+    self.panel.sendButton:SetPoint("BOTTOM", 0, 12)
+    self.panel.sendButton.textColor = COLOR_WHITE
+    self.panel.sendButton:Enable()
 
     local wr, wg, wb = unpack(COLOR_WHITE)
-    panel.sendButton:GetFontString():SetTextColor(wr, wg, wb)
+    self.panel.sendButton:GetFontString():SetTextColor(wr, wg, wb)
 
-    panel.clearButton:Hide()
+    self.panel.clearButton:Hide()
 end
 
 function Mail:ShowCurrentMail()
     local entry = self._queue[self._index]
     if not entry then return end
-    panel.preview.recipient:SetText(entry.target)
-    panel.preview.amount:SetText(FormatCurrency(entry.money))
-    panel.preview.subject:SetText(entry.subject)
-    panel.preview.body:SetText(entry.body)
-    panel.progressBar.text:SetText(format("%d / %d", self._index, #self._queue))
+    self.panel.preview.recipient:SetText(entry.target)
+    self.panel.preview.amount:SetText(FormatCurrency(entry.money))
+    self.panel.preview.subject:SetText(entry.subject)
+    self.panel.preview.body:SetText(entry.body)
+    self.panel.progressBar.text:SetText(format("%d / %d", self._index, #self._queue))
 end
 
 function Mail:SendCurrentMail()
@@ -693,14 +690,14 @@ function Mail:SendCurrentMail()
     if not entry or self._sending then return end
 
     if GetMoney() < (entry.money + 30) then
-        Mail:SetStatus(HEX_RED .. "Error: Need 30c postage for " .. entry.target .. ".|r", 4)
+        self:SetStatus(HEX_RED .. "Error: Need 30c postage for " .. entry.target .. ".|r", 4)
         self._index = self._index + 1
-        Mail:AdvanceQueue()
+        self:AdvanceQueue()
         return
     end
 
     self._sending = true
-    Mail:SetStatus(HEX_GREY .. "Sending mail to " .. entry.target .. "|r")
+    self:SetStatus(HEX_GREY .. "Sending mail to " .. entry.target .. "|r")
 
     self.moneyBefore = GetMoney()
     self.expectedCost = entry.money + 30
@@ -710,7 +707,7 @@ function Mail:SendCurrentMail()
 
     local success, err = pcall(SendMail, entry.target, entry.subject, entry.body)
     if not success then
-        Mail:SetStatus(HEX_RED .. "API Error: " .. tostring(err) .. "|r", 4)
+        self:SetStatus(HEX_RED .. "API Error: " .. tostring(err) .. "|r", 4)
         self._sending = false
     end
 end
@@ -725,21 +722,21 @@ function Mail:OnPlayerMoney()
     if spent == expected then
         self._sending = false
         if self._queue[self._index] then self._queue[self._index].sent = true end
-        panel.progressBar.targetValue = self._index
+        self.panel.progressBar.targetValue = self._index
         self._index = self._index + 1
-        Mail:AdvanceQueue()
+        self:AdvanceQueue()
     end
 end
 
 function Mail:OnMailFailed()
     if not self._sending then return end
     self._sending = false
-    Mail:SetStatus(HEX_RED .. "Mail Failed / Cancelled|r", 4)
+    self:SetStatus(HEX_RED .. "Mail Failed / Cancelled|r", 4)
     self._index = self._index + 1
-    Mail:AdvanceQueue()
+    self:AdvanceQueue()
 end
 
 function Mail:AdvanceQueue()
-    if not self._queue[self._index] then Mail:FinishQueue(false) return end
-    Mail:ShowCurrentMail()
+    if not self._queue[self._index] then self:FinishQueue(false) return end
+    self:ShowCurrentMail()
 end

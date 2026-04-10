@@ -2,6 +2,21 @@ local addonName, whisper = ...
 local Keystones = {}
 Keystones.enabled = true
 Keystones.isTestMode = false
+
+Keystones.defaults = {
+    compactMode = false,
+    growUp = false,
+    useAbbreviation = false,
+    transparentMode = false,
+    offsetX = -20,
+    offsetY = 10,
+    -- New defaults for the Reroll alert position
+    rerollOffsetX = 0,
+    rerollOffsetY = 150,
+    version = 1,
+    partyCache = {}
+}
+
 whisper:RegisterModule("Keystones", Keystones)
 
 local C_ChatInfo = C_ChatInfo
@@ -106,6 +121,97 @@ local isInActiveChallenge = false
 local lastBagScan = 0
 local lastCooldownRefresh = 0
 
+-- =========================================================================
+-- REROLL ALERT FRAME GENERATION
+-- =========================================================================
+function Keystones:EnsureAlertFrameExists()
+    if self.alertFrame then return end
+
+    local db = whisperDB.keystones
+
+    -- 1. Create the container frame (this is the anchor we drag)
+    self.alertAnchor = CreateFrame("Frame", "whisperKeystoneRerollAnchor", UIParent, "BackdropTemplate")
+    self.alertAnchor:SetSize(180, ANCHOR_HEIGHT)
+    self.alertAnchor:SetPoint("CENTER", UIParent, "CENTER", db.rerollOffsetX, db.rerollOffsetY)
+    self.alertAnchor:SetBackdrop({
+        bgFile = BAR_TEXTURE,
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        edgeSize = 1,
+        insets = { left = 0, right = 0, top = 0, bottom = 0 }
+    })
+    self.alertAnchor:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
+    self.alertAnchor:SetBackdropBorderColor(0, 0, 0, 1)
+    self.alertAnchor:SetMovable(true)
+    self.alertAnchor:EnableMouse(false)
+    self.alertAnchor:RegisterForDrag("LeftButton")
+    self.alertAnchor:Hide()
+
+    local anchorText = self.alertAnchor:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    anchorText:SetPoint("CENTER", 0, 0)
+    anchorText:SetFont(STANDARD_FONT, 12)
+    anchorText:SetText("REROLL ANCHOR")
+    anchorText:SetTextColor(1, 1, 1)
+
+    self.alertAnchor:SetScript("OnDragStart", function(f) f:StartMoving() end)
+    self.alertAnchor:SetScript("OnDragStop", function(f)
+        f:StopMovingOrSizing()
+        local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+        if sw > 0 and sh > 0 then
+            local cx, cy = f:GetCenter()
+            whisperDB.keystones.rerollOffsetX = cx - (sw / 2)
+            whisperDB.keystones.rerollOffsetY = cy - (sh / 2)
+        end
+    end)
+
+    -- 2. Create the actual text alert frame
+    self.alertFrame = CreateFrame("Frame", "whisperKeystoneRerollAlert", self.alertAnchor)
+    self.alertFrame:SetSize(300, 50)
+    self.alertFrame:SetPoint("TOP", self.alertAnchor, "BOTTOM", 0, -5)
+    self.alertFrame:Hide()
+
+    self.text = self.alertFrame:CreateFontString(nil, "OVERLAY")
+    self.text:SetPoint("CENTER")
+    self.text:SetFont(STANDARD_FONT, 24, "OUTLINE")
+    self.text:SetShadowColor(0, 0, 0, 0)
+    self.text:SetShadowOffset(0, 0)
+    self.text:SetText("|cffFFFFFFReroll Key?|r")
+
+    self.animGroup = self.alertFrame:CreateAnimationGroup()
+    local fadeIn = self.animGroup:CreateAnimation("Alpha")
+    fadeIn:SetFromAlpha(0)
+    fadeIn:SetToAlpha(1)
+    fadeIn:SetDuration(0.4)
+    fadeIn:SetOrder(1)
+
+    local hold = self.animGroup:CreateAnimation("Alpha")
+    hold:SetFromAlpha(1)
+    hold:SetToAlpha(1)
+    hold:SetDuration(8)
+    hold:SetOrder(2)
+
+    local fadeOut = self.animGroup:CreateAnimation("Alpha")
+    fadeOut:SetFromAlpha(1)
+    fadeOut:SetToAlpha(0)
+    fadeOut:SetDuration(0.4)
+    fadeOut:SetOrder(3)
+
+    self.animGroup:SetScript("OnFinished", function()
+        if not self.isTestMode then self.alertFrame:Hide() end
+    end)
+end
+
+function Keystones:ShowRerollReminder()
+    if not self.alertFrame then self:EnsureAlertFrameExists() end
+    self.animGroup:Stop()
+    self.alertFrame:SetAlpha(1)
+    self.alertFrame:Show()
+    self.animGroup:Play()
+end
+
+
+-- =========================================================================
+-- DATA MANAGEMENT
+-- =========================================================================
 function KeystoneManager:GetMapInfo(mapID)
     local info = DUNGEON_DB[mapID]
     local name, _, _, texture = C_ChallengeMode.GetMapUIInfo(mapID)
@@ -145,7 +251,6 @@ function KeystoneManager:UpdateEntry(sender, mapID, level)
 
     local shortName = fullName:match("(.+)-") or fullName
 
-    -- Safe cross-realm class check
     local _, classFilename = UnitClass(fullName)
     if not classFilename then _, classFilename = UnitClass(shortName) end
 
@@ -166,15 +271,12 @@ end
 function KeystoneManager:RequestKeys()
     if not IsInGroup() then return end
 
-    -- 1. Native whisper comms
     SendAddonMessage(COMM_PREFIX, "WHISPER:REQ", "PARTY")
 
-    -- 2. Details/WeakAuras fallback
     if ORL then
         pcall(function() ORL.RequestKeystoneDataFromParty() end)
     end
 
-    -- 3. BigWigs/Astral Keys fallback
     if LibKeystone then
         pcall(function() LibKeystone.Request("PARTY") end)
     end
@@ -184,7 +286,6 @@ function KeystoneManager:ScanOwnKey()
     local mapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
     local level = C_MythicPlus.GetOwnedKeystoneLevel()
 
-    -- BigWigs Brute-Force Bag Scan Fallback
     if not mapID or not level or mapID == 0 or level == 0 then
         for bag = 0, 4 do
             for slot = 1, C_Container.GetContainerNumSlots(bag) do
@@ -276,6 +377,10 @@ end
 
 function Keystones:ToggleTestMode()
     self.isTestMode = not self.isTestMode
+
+    if not self.alertAnchor then self:EnsureAlertFrameExists() end
+
+    -- Handle the Keystone Interface Anchor
     if Interface.anchor then
         if self.isTestMode then
             Interface.anchor:Show()
@@ -285,6 +390,19 @@ function Keystones:ToggleTestMode()
             Interface.anchor:Hide()
             Interface.anchor:EnableMouse(false)
         end
+    end
+
+    -- Handle the Reroll Alert Anchor
+    if self.isTestMode then
+        self.alertAnchor:Show()
+        self.alertAnchor:EnableMouse(true)
+        self.alertFrame:SetAlpha(1)
+        self.alertFrame:Show()
+        self.animGroup:Stop() -- Stop animations from running while testing position
+    else
+        self.alertAnchor:Hide()
+        self.alertAnchor:EnableMouse(false)
+        self.alertFrame:Hide()
     end
 
     if self.isTestMode then
@@ -308,6 +426,10 @@ function Keystones:ToggleTestMode()
         end
         Interface:Refresh()
     else
+        if self.alertFrame then
+            self.animGroup:Stop()
+            self.alertFrame:Hide()
+        end
         KeystoneManager.partyData = whisperDB.keystones.partyCache
         KeystoneManager:ScanOwnKey()
         if IsInGroup() then KeystoneManager:RequestKeys() end
@@ -316,15 +438,21 @@ function Keystones:ToggleTestMode()
 end
 
 function Keystones:ResetDefaults()
-    local db = whisperDB.keystones
-    local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
-    db.compactMode = false
-    db.growUp = false
-    db.useAbbreviation = false
-    db.offsetX = -(sw * 0.499)
-    db.offsetY = (sh * 0.08)
+    for k, v in pairs(self.defaults) do
+        whisperDB.keystones[k] = v
+    end
+    -- Reset to a dynamic screen percentage natively
+    local sw, sh = UIParent:GetWidth() or GetScreenWidth(), UIParent:GetHeight() or GetScreenHeight()
+    whisperDB.keystones.offsetX = -(sw * 0.499)
+    whisperDB.keystones.offsetY = (sh * 0.08)
+
     Interface:UpdatePosition()
     Interface:Refresh()
+
+    if self.alertAnchor then
+        self.alertAnchor:ClearAllPoints()
+        self.alertAnchor:SetPoint("CENTER", UIParent, "CENTER", whisperDB.keystones.rerollOffsetX, whisperDB.keystones.rerollOffsetY)
+    end
 end
 
 local function CreateKeystoneRow(parent, index)
@@ -699,29 +827,12 @@ function Interface:UpdatePosition()
 end
 
 function Keystones:Init()
-    if not whisperDB.keystones then whisperDB.keystones = {} end
-    local db = whisperDB.keystones
-    local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
-
-    if db.enabled == nil then db.enabled = true end
-    self.enabled = db.enabled
-
-    local DB_VERSION = 1
-    if not db.version or db.version < DB_VERSION then
-        db.version = DB_VERSION
-    end
-
-    if not db.partyCache then db.partyCache = {} end
-    KeystoneManager.partyData = db.partyCache
-
-    if db.useAbbreviation == nil then db.useAbbreviation = false end
-    if db.compactMode == nil then db.compactMode = false end
-    if db.growUp == nil then db.growUp = false end
-    if db.transparentMode == nil then db.transparentMode = false end
-    if db.offsetX == nil then db.offsetX = -(sw * 0.499) end
-    if db.offsetY == nil then db.offsetY = (sh * 0.08) end
+    KeystoneManager.partyData = whisperDB.keystones.partyCache
 
     if not self.enabled then return end
+
+    -- Prepare the Reroll alert frame early
+    self:EnsureAlertFrameExists()
 
     Interface:Create()
     Interface:UpdatePosition()
@@ -779,6 +890,9 @@ function Keystones:Init()
             elseif event == "CHALLENGE_MODE_COMPLETED" then
                 isInActiveChallenge = false
                 Interface:Refresh()
+
+                -- Show the Reroll reminder right as the key completes
+                Keystones:ShowRerollReminder()
 
                 -- Give players 5 seconds to loot the Challenger's Cache, then request new keys
                 C_Timer.After(5, function()
@@ -838,8 +952,13 @@ function Keystones:Disable()
         Interface.container:Hide()
     end
 
+    if self.alertAnchor then
+        self.animGroup:Stop()
+        self.alertAnchor:Hide()
+        self.alertFrame:Hide()
+    end
+
     if whisperDB.keystones then
-        whisperDB.keystones.enabled = false
         whisperDB.keystones.partyCache = KeystoneManager.partyData
     end
 
@@ -860,4 +979,99 @@ SlashCmdList["WHISPERMAPS"] = function()
     else
         print("No Challenge Maps found.")
     end
+end
+
+-- =========================
+-- Config Panel UI
+-- =========================
+function Keystones:BuildOptionsPanel(content, toggleBtn)
+    local yStart = -80
+    local db = whisperDB.keystones
+
+    local testBtn = whisper.GUI.CreateStyledButton(content, "Test", 80, 24)
+    testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
+    local function UpdateTestText()
+        if self.isTestMode then
+            testBtn:SetText("End")
+            testBtn:GetFontString():SetTextColor(1, 0.2, 0.2)
+        else
+            testBtn:SetText("Test")
+            testBtn:GetFontString():SetTextColor(1, 1, 1)
+        end
+    end
+    testBtn:SetScript("OnClick", function()
+        if self.ToggleTestMode then self:ToggleTestMode() UpdateTestText() end
+    end)
+    self.testButton = testBtn
+
+    local resetBtn = whisper.GUI.CreateStyledButton(content, "Reset", 80, 24)
+    resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
+    resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
+
+    local xSlider = whisper.GUI.CreateCustomSlider(content, "X Offset", -50, 50, 1,
+        function() local sw = UIParent:GetWidth() if sw == 0 then return 0 end return math.floor((db.offsetX / sw) * 100 + 0.5) end,
+        function(val) local sw = UIParent:GetWidth() db.offsetX = (val / 100) * sw if self.UpdateSettings then self:UpdateSettings() end end
+    )
+    xSlider:SetPoint("TOPLEFT", 0, yStart)
+
+    local ySlider = whisper.GUI.CreateCustomSlider(content, "Y Offset", -50, 50, 1,
+        function() local sh = UIParent:GetHeight() if sh == 0 then return 0 end return math.floor((db.offsetY / sh) * 100 + 0.5) end,
+        function(val) local sh = UIParent:GetHeight() db.offsetY = (val / 100) * sh if self.UpdateSettings then self:UpdateSettings() end end
+    )
+    ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
+
+    local compactBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
+    compactBtn:SetPoint("TOPLEFT", 0, yStart - 120)
+
+    local function UpdateCompactText()
+        if db.transparentMode then
+            compactBtn:SetText("Style: Transparent")
+            compactBtn:GetFontString():SetTextColor(0.2, 0.8, 1)
+        elseif db.compactMode then
+            compactBtn:SetText("Style: Compact")
+            compactBtn:GetFontString():SetTextColor(1, 0.4, 0.8)
+        else
+            compactBtn:SetText("Style: Default")
+            compactBtn:GetFontString():SetTextColor(0.5, 0.5, 1)
+        end
+    end
+    UpdateCompactText()
+
+    compactBtn:SetScript("OnClick", function()
+        if not db.compactMode and not db.transparentMode then db.compactMode = true db.transparentMode = false
+        elseif db.compactMode and not db.transparentMode then db.compactMode = false db.transparentMode = true
+        else db.compactMode = false db.transparentMode = false end
+        UpdateCompactText()
+        if self.UpdateSettings then self:UpdateSettings() end
+    end)
+
+    local growBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
+    growBtn:SetPoint("TOPLEFT", compactBtn, "TOPRIGHT", 10, 0)
+
+    local function UpdateGrowText()
+        if db.growUp then
+            growBtn:SetText("Grow Up")
+            growBtn:GetFontString():SetTextColor(0.5, 0.5, 1)
+        else
+            growBtn:SetText("Grow Down")
+            growBtn:GetFontString():SetTextColor(0.5, 0.5, 1)
+        end
+    end
+    UpdateGrowText()
+
+    growBtn:SetScript("OnClick", function()
+        db.growUp = not db.growUp
+        UpdateGrowText()
+        if self.UpdateSettings then self:UpdateSettings() end
+    end)
+
+    resetBtn:SetScript("OnClick", function()
+        if self.ResetDefaults then
+            self:ResetDefaults()
+            if xSlider and xSlider.UpdateVisuals then xSlider.UpdateVisuals(math.floor((db.offsetX / UIParent:GetWidth()) * 100 + 0.5)) end
+            if ySlider and ySlider.UpdateVisuals then ySlider.UpdateVisuals(math.floor((db.offsetY / UIParent:GetHeight()) * 100 + 0.5)) end
+            UpdateCompactText()
+            UpdateGrowText()
+        end
+    end)
 end

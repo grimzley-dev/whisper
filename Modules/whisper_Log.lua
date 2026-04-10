@@ -78,18 +78,12 @@ local C = {
     SYMBOL_FLOW = "•"
 }
 
--- State
-local mailLogFrame
-local logoButton
-local currentMailFilter = ""
-local currentTypeFilter = "ALL"
-local showAllCharacters = false
-local filteredMailList = nil
-local displayList = {}
-local mailRowPool = {}
-local globalEventFrame
-
--- Pending State for Outgoing Mail
+-- Module State Encapsulation
+Log.currentMailFilter = ""
+Log.currentTypeFilter = "ALL"
+Log.showAllCharacters = false
+Log.displayList = {}
+Log.mailRowPool = {}
 Log.pendingMail = nil
 Log.moneyBefore = 0
 
@@ -164,7 +158,6 @@ local function FormatCurrencyStyled(amount)
     local isNegative = amount < 0
     amount = abs(amount)
 
-    -- We only care about gold now
     local gold = floor(amount / 10000)
 
     local parts = {}
@@ -173,7 +166,6 @@ local function FormatCurrencyStyled(amount)
     if gold > 0 then
         tinsert(parts, C.HEX_GOLD .. FormatLargeNumber(gold) .. "|r" .. C.TEX_GOLD)
     else
-        -- If it's pure silver/copper, show 0g
         tinsert(parts, C.HEX_GOLD .. "0|r" .. C.TEX_GOLD)
     end
 
@@ -300,21 +292,21 @@ function Log:Init()
         end
     end
 
-    if not globalEventFrame then
-        globalEventFrame = CreateFrame("Frame")
-        globalEventFrame:SetScript("OnEvent", function(_, event, ...)
+    if not self.globalEventFrame then
+        self.globalEventFrame = CreateFrame("Frame")
+        self.globalEventFrame:SetScript("OnEvent", function(_, event, ...)
             if event == "GUILDBANKFRAME_OPENED" then
-                Log:CreateGuildBankButton()
+                self:CreateGuildBankButton()
             elseif event == "PLAYER_MONEY" then
-                Log:CheckMoneyVerify()
+                self:CheckMoneyVerify()
             elseif event == "MAIL_FAILED" then
-                Log:ClearPendingMail()
+                self:ClearPendingMail()
             elseif event == "MAIL_SHOW" then
-                if Log.enabled then Log:CreateButton() end
+                if self.enabled then self:CreateButton() end
             elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
                 local interactionType = ...
                 if interactionType == Enum.PlayerInteractionType.MailInfo then
-                    if mailLogFrame then mailLogFrame:Hide() end
+                    if self.mailLogFrame then self.mailLogFrame:Hide() end
                     if whisper.modules.Mail and whisper.modules.Mail.ResetPanel then
                         whisper.modules.Mail:ResetPanel()
                     end
@@ -323,59 +315,58 @@ function Log:Init()
         end)
     end
 
-    globalEventFrame:RegisterEvent("GUILDBANKFRAME_OPENED")
-    globalEventFrame:RegisterEvent("PLAYER_MONEY")
-    globalEventFrame:RegisterEvent("MAIL_FAILED")
-    globalEventFrame:RegisterEvent("MAIL_SHOW")
-    globalEventFrame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+    self.globalEventFrame:RegisterEvent("GUILDBANKFRAME_OPENED")
+    self.globalEventFrame:RegisterEvent("PLAYER_MONEY")
+    self.globalEventFrame:RegisterEvent("MAIL_FAILED")
+    self.globalEventFrame:RegisterEvent("MAIL_SHOW")
+    self.globalEventFrame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
 
     self:HookMailFunctions()
 
-    -- If mailbox is already open when enabled, show button immediately
     if MailFrame and MailFrame:IsShown() then
-        Log:CreateButton()
+        self:CreateButton()
     end
 end
 
 function Log:Disable()
     self.enabled = false
-    if logoButton then logoButton:Hide() end
-    if mailLogFrame then mailLogFrame:Hide() end
-    if globalEventFrame then
-        globalEventFrame:UnregisterAllEvents()
+    if self.logoButton then self.logoButton:Hide() end
+    if self.mailLogFrame then self.mailLogFrame:Hide() end
+    if self.globalEventFrame then
+        self.globalEventFrame:UnregisterAllEvents()
     end
 end
 
 function Log:CreateButton()
     if not self.enabled then return end
 
-    if logoButton then
-        logoButton:Show()
+    if self.logoButton then
+        self.logoButton:Show()
         return
     end
 
-    logoButton = CreateFrame("Button", nil, MailFrame)
-    logoButton:SetSize(40, 40)
-    logoButton:SetPoint("BOTTOM", MailFrame, "BOTTOM", 4, 34)
-    logoButton:SetFrameStrata("MEDIUM")
-    logoButton:SetFrameLevel(2)
+    self.logoButton = CreateFrame("Button", nil, MailFrame)
+    self.logoButton:SetSize(40, 40)
+    self.logoButton:SetPoint("BOTTOM", MailFrame, "BOTTOM", 4, 34)
+    self.logoButton:SetFrameStrata("MEDIUM")
+    self.logoButton:SetFrameLevel(2)
 
-    local tex = logoButton:CreateTexture(nil, "OVERLAY")
+    local tex = self.logoButton:CreateTexture(nil, "OVERLAY")
     tex:SetTexture("Interface/AddOns/whisper/Media/whisperLogo")
     tex:SetAllPoints()
     tex:SetAlpha(0.7)
-    logoButton.tex = tex
+    self.logoButton.tex = tex
 
-    logoButton:SetScript("OnEnter", function(self) self.tex:SetVertexColor(0.8, 0.8, 0.8) end)
-    logoButton:SetScript("OnLeave", function(self) self.tex:SetVertexColor(1, 1, 1) end)
-    logoButton:SetScript("OnMouseDown", function(self) self.tex:SetVertexColor(0.6, 0.6, 0.6) end)
-    logoButton:SetScript("OnMouseUp", function(self) self.tex:SetVertexColor(0.8, 0.8, 0.8) end)
+    self.logoButton:SetScript("OnEnter", function(btn) btn.tex:SetVertexColor(0.8, 0.8, 0.8) end)
+    self.logoButton:SetScript("OnLeave", function(btn) btn.tex:SetVertexColor(1, 1, 1) end)
+    self.logoButton:SetScript("OnMouseDown", function(btn) btn.tex:SetVertexColor(0.6, 0.6, 0.6) end)
+    self.logoButton:SetScript("OnMouseUp", function(btn) btn.tex:SetVertexColor(0.8, 0.8, 0.8) end)
 
-    logoButton:SetScript("OnClick", function()
-        if mailLogFrame and mailLogFrame:IsShown() then
-            FadeOut(mailLogFrame, 0.1)
+    self.logoButton:SetScript("OnClick", function()
+        if self.mailLogFrame and self.mailLogFrame:IsShown() then
+            FadeOut(self.mailLogFrame, 0.1)
         else
-            Log:ToggleMailLog(MailFrame)
+            self:ToggleMailLog(MailFrame)
         end
     end)
 end
@@ -384,7 +375,7 @@ function Log:HookMailFunctions()
     if self.hooksApplied then return end
 
     hooksecurefunc("SendMail", function(target, subject, body)
-        if not Log.enabled then return end
+        if not self.enabled then return end
         local money = GetSendMailMoney()
         local ts = GetFullTimestampStr()
         local actualBody = body
@@ -394,23 +385,23 @@ function Log:HookMailFunctions()
         local fromAddon = false
         if whisper.modules.Mail and whisper.modules.Mail._sending then fromAddon = true end
 
-        Log.pendingMail = {
+        self.pendingMail = {
             type = "Sent", target = target, owner = PLAYER_NAME,
             subject = subject or "No Subject", body = actualBody or "",
             money = money, timestamp = ts, dateSent = ts, dateOpened = ts,
             expanded = false, fromAddon = fromAddon
         }
-        Log.moneyBefore = GetMoney()
+        self.moneyBefore = GetMoney()
     end)
 
-    hooksecurefunc("TakeInboxMoney", function(index) if Log.enabled then Log:CaptureReceivedMail(index) end end)
-    hooksecurefunc("AutoLootMailItem", function(index) if Log.enabled then Log:CaptureReceivedMail(index) end end)
+    hooksecurefunc("TakeInboxMoney", function(index) if self.enabled then self:CaptureReceivedMail(index) end end)
+    hooksecurefunc("AutoLootMailItem", function(index) if self.enabled then self:CaptureReceivedMail(index) end end)
 
     if OpenMailFrame then
         OpenMailFrame:HookScript("OnShow", function()
-            if not Log.enabled then return end
+            if not self.enabled then return end
             local index = InboxFrame.openMailID
-            if index then Log:CaptureReceivedMail(index) end
+            if index then self:CaptureReceivedMail(index) end
         end)
     end
 
@@ -418,22 +409,22 @@ function Log:HookMailFunctions()
 end
 
 function Log:CheckMoneyVerify()
-    if not Log.pendingMail or not self.enabled then return end
+    if not self.pendingMail or not self.enabled then return end
 
     local currentMoney = GetMoney()
-    local spent = Log.moneyBefore - currentMoney
-    local expected = Log.pendingMail.money + 30
+    local spent = self.moneyBefore - currentMoney
+    local expected = self.pendingMail.money + 30
 
     if spent == expected then
-        Log:CommitLog()
+        self:CommitLog()
     end
 end
 
 function Log:CommitLog()
-    local entry = Log.pendingMail
+    local entry = self.pendingMail
 
     if not entry.money or entry.money == 0 then
-        Log.pendingMail = nil
+        self.pendingMail = nil
         return
     end
 
@@ -449,14 +440,14 @@ function Log:CommitLog()
     if not isDuplicate then
         SanitizeData(entry)
         tinsert(whisperDB.log.mail, 1, entry)
-        Log:RefreshMailLog()
+        self:RefreshMailLog()
     end
 
-    Log.pendingMail = nil
+    self.pendingMail = nil
 end
 
 function Log:ClearPendingMail()
-    Log.pendingMail = nil
+    self.pendingMail = nil
 end
 
 function Log:CaptureReceivedMail(index)
@@ -485,7 +476,7 @@ function Log:CaptureReceivedMail(index)
 
     if not isDuplicate then
         tinsert(whisperDB.log.mail, 1, entry)
-        Log:RefreshMailLog()
+        self:RefreshMailLog()
     end
 end
 
@@ -715,11 +706,11 @@ local function CreateDynamicRow(parent)
 end
 
 function Log:ToggleMailLog(anchorFrame)
-    if not mailLogFrame then
-        mailLogFrame = CreateBasePanel("whisperMailLog", "Mail Log", UIParent)
-        mailLogFrame:SetSize(650, 570)
+    if not self.mailLogFrame then
+        self.mailLogFrame = CreateBasePanel("whisperMailLog", "Mail Log", UIParent)
+        self.mailLogFrame:SetSize(650, 570)
 
-        local scroll = CreateFrame("ScrollFrame", "whisperMailLogScroll", mailLogFrame, "UIPanelScrollFrameTemplate")
+        local scroll = CreateFrame("ScrollFrame", "whisperMailLogScroll", self.mailLogFrame, "UIPanelScrollFrameTemplate")
         scroll:SetPoint("TOPLEFT", 10, -60)
         scroll:SetPoint("BOTTOMRIGHT", -30, 30)
         if scroll.ScrollBar then scroll.ScrollBar:SetAlpha(0) scroll.ScrollBar:EnableMouse(false) end
@@ -727,23 +718,23 @@ function Log:ToggleMailLog(anchorFrame)
         local content = CreateFrame("Frame", nil, scroll)
         content:SetSize(610, 500)
         scroll:SetScrollChild(content)
-        mailLogFrame.content = content
+        self.mailLogFrame.content = content
 
-        local empty = mailLogFrame.content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local empty = self.mailLogFrame.content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         empty:SetFont(STANDARD_FONT, 14, "OUTLINE")
-        empty:SetPoint("CENTER", mailLogFrame, "CENTER", 0, 0)
+        empty:SetPoint("CENTER", self.mailLogFrame, "CENTER", 0, 0)
         empty:SetText("No mail records found.")
         empty:SetTextColor(unpack(C.TEXT_TERTIARY))
         empty:Hide()
-        mailLogFrame.emptyState = empty
+        self.mailLogFrame.emptyState = empty
 
-        local search = CreateSearchBox(mailLogFrame, function(text)
-            currentMailFilter = text
-            Log:RefreshMailLog()
+        local search = CreateSearchBox(self.mailLogFrame, function(text)
+            self.currentMailFilter = text
+            self:RefreshMailLog()
         end)
         search:SetPoint("TOPRIGHT", -30, -20)
 
-        local btnCharToggle = CreateFrame("Button", nil, mailLogFrame, "BackdropTemplate")
+        local btnCharToggle = CreateFrame("Button", nil, self.mailLogFrame, "BackdropTemplate")
         btnCharToggle:SetSize(120, 22)
         btnCharToggle:SetPoint("BOTTOMLEFT", 8, 4)
         btnCharToggle:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
@@ -755,7 +746,7 @@ function Log:ToggleMailLog(anchorFrame)
         charToggleText:SetPoint("CENTER", 0, 0)
         btnCharToggle.text = charToggleText
 
-        local btnMail = CreateFrame("Button", nil, mailLogFrame, "BackdropTemplate")
+        local btnMail = CreateFrame("Button", nil, self.mailLogFrame, "BackdropTemplate")
         btnMail:SetSize(60, 22)
         btnMail:SetPoint("LEFT", btnCharToggle, "RIGHT", 12, 0)
         btnMail:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
@@ -769,14 +760,14 @@ function Log:ToggleMailLog(anchorFrame)
 
         btnMail:SetScript("OnClick", function()
             if whisper.modules.Mail then
-                whisper.modules.Mail:TogglePanel(mailLogFrame)
+                whisper.modules.Mail:TogglePanel(self.mailLogFrame)
             end
         end)
-        btnMail:SetScript("OnEnter", function(self) self:SetBackdropColor(0.1, 0.1, 0.1, 1) end)
-        btnMail:SetScript("OnLeave", function(self) self:SetBackdropColor(0, 0, 0, 1) end)
+        btnMail:SetScript("OnEnter", function(btn) btn:SetBackdropColor(0.1, 0.1, 0.1, 1) end)
+        btnMail:SetScript("OnLeave", function(btn) btn:SetBackdropColor(0, 0, 0, 1) end)
 
         local function UpdateCharToggleText()
-            if showAllCharacters then
+            if self.showAllCharacters then
                 charToggleText:SetText("All Characters")
                 charToggleText:SetTextColor(1, 1, 1)
             else
@@ -788,42 +779,42 @@ function Log:ToggleMailLog(anchorFrame)
         UpdateCharToggleText()
 
         btnCharToggle:SetScript("OnClick", function()
-            showAllCharacters = not showAllCharacters
+            self.showAllCharacters = not self.showAllCharacters
             UpdateCharToggleText()
             for _, entry in ipairs(whisperDB.log.mail) do entry.expanded = false end
-            Log:RefreshMailLog()
+            self:RefreshMailLog()
         end)
 
         local function AddHover(btn)
-            btn:SetScript("OnEnter", function(self) self:SetBackdropColor(0.1, 0.1, 0.1, 1) end)
-            btn:SetScript("OnLeave", function(self) self:SetBackdropColor(0, 0, 0, 1) end)
+            btn:SetScript("OnEnter", function(b) b:SetBackdropColor(0.1, 0.1, 0.1, 1) end)
+            btn:SetScript("OnLeave", function(b) b:SetBackdropColor(0, 0, 0, 1) end)
         end
         AddHover(btnCharToggle)
 
         local function SetFilter(val)
-            currentTypeFilter = val
-            if mailLogFrame.pillAll then
-                mailLogFrame.pillAll.UpdateState(mailLogFrame.pillAll, val)
-                mailLogFrame.pillIn.UpdateState(mailLogFrame.pillIn, val)
-                mailLogFrame.pillOut.UpdateState(mailLogFrame.pillOut, val)
+            self.currentTypeFilter = val
+            if self.mailLogFrame.pillAll then
+                self.mailLogFrame.pillAll:UpdateState(val)
+                self.mailLogFrame.pillIn:UpdateState(val)
+                self.mailLogFrame.pillOut:UpdateState(val)
             end
             for _, entry in ipairs(whisperDB.log.mail) do entry.expanded = false end
-            Log:RefreshMailLog()
+            self:RefreshMailLog()
         end
 
-        local pillAll = CreateFilterPill(mailLogFrame, "All", "ALL", SetFilter)
+        local pillAll = CreateFilterPill(self.mailLogFrame, "All", "ALL", SetFilter)
         pillAll:SetPoint("RIGHT", search, "LEFT", -10, 0)
-        mailLogFrame.pillAll = pillAll
+        self.mailLogFrame.pillAll = pillAll
 
-        local pillIn = CreateFilterPill(mailLogFrame, "Incoming", "IN", SetFilter)
+        local pillIn = CreateFilterPill(self.mailLogFrame, "Incoming", "IN", SetFilter)
         pillIn:SetPoint("RIGHT", pillAll, "LEFT", -5, 0)
-        mailLogFrame.pillIn = pillIn
+        self.mailLogFrame.pillIn = pillIn
 
-        local pillOut = CreateFilterPill(mailLogFrame, "Outgoing", "OUT", SetFilter)
+        local pillOut = CreateFilterPill(self.mailLogFrame, "Outgoing", "OUT", SetFilter)
         pillOut:SetPoint("RIGHT", pillIn, "LEFT", -5, 0)
-        mailLogFrame.pillOut = pillOut
+        self.mailLogFrame.pillOut = pillOut
 
-        local clearBtn = CreateFrame("Button", nil, mailLogFrame, "BackdropTemplate")
+        local clearBtn = CreateFrame("Button", nil, self.mailLogFrame, "BackdropTemplate")
         clearBtn:SetSize(80, 22)
         clearBtn:SetPoint("BOTTOMRIGHT", -8, 4)
         clearBtn:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
@@ -834,24 +825,24 @@ function Log:ToggleMailLog(anchorFrame)
         ct:SetPoint("CENTER")
         ct:SetText("Clear")
         ct:SetTextColor(unpack(C.RED))
-        clearBtn:SetScript("OnEnter", function(self) self:SetBackdropColor(0.1, 0.1, 0.1, 1) end)
-        clearBtn:SetScript("OnLeave", function(self) self:SetBackdropColor(0, 0, 0, 1) end)
+        clearBtn:SetScript("OnEnter", function(btn) btn:SetBackdropColor(0.1, 0.1, 0.1, 1) end)
+        clearBtn:SetScript("OnLeave", function(btn) btn:SetBackdropColor(0, 0, 0, 1) end)
 
         clearBtn:SetScript("OnClick", function()
             StaticPopup_Show("WHISPER_LOG_CLEAR_CONFIRM")
         end)
 
-        mailLogFrame:SetScript("OnHide", function()
-            currentTypeFilter = "ALL"
-            showAllCharacters = false
+        self.mailLogFrame:SetScript("OnHide", function()
+            self.currentTypeFilter = "ALL"
+            self.showAllCharacters = false
             UpdateCharToggleText()
             if whisper.modules.Mail and whisper.modules.Mail.ResetPanel then
                 whisper.modules.Mail:ResetPanel()
             end
-            if mailLogFrame.pillAll then
-                mailLogFrame.pillAll.UpdateState(mailLogFrame.pillAll, "ALL")
-                mailLogFrame.pillIn.UpdateState(mailLogFrame.pillIn, "ALL")
-                mailLogFrame.pillOut.UpdateState(mailLogFrame.pillOut, "ALL")
+            if self.mailLogFrame.pillAll then
+                self.mailLogFrame.pillAll:UpdateState("ALL")
+                self.mailLogFrame.pillIn:UpdateState("ALL")
+                self.mailLogFrame.pillOut:UpdateState("ALL")
             end
             for _, entry in ipairs(whisperDB.log.mail) do entry.expanded = false end
         end)
@@ -860,49 +851,49 @@ function Log:ToggleMailLog(anchorFrame)
     end
 
     if anchorFrame then
-        mailLogFrame:SetParent(anchorFrame)
-        mailLogFrame:ClearAllPoints()
-        mailLogFrame:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", 2, 0)
-        FadeIn(mailLogFrame, 0.1)
-        Log:RefreshMailLog()
+        self.mailLogFrame:SetParent(anchorFrame)
+        self.mailLogFrame:ClearAllPoints()
+        self.mailLogFrame:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", 2, 0)
+        FadeIn(self.mailLogFrame, 0.1)
+        self:RefreshMailLog()
     else
-        FadeOut(mailLogFrame, 0.1)
+        FadeOut(self.mailLogFrame, 0.1)
     end
 end
 
-function Log:HideMailLog() if mailLogFrame then mailLogFrame:Hide() end end
+function Log:HideMailLog() if self.mailLogFrame then self.mailLogFrame:Hide() end end
 
 function Log:RefreshMailLog()
-    if not mailLogFrame or not mailLogFrame:IsShown() then return end
-    if not mailLogFrame.content then return end
+    if not self.mailLogFrame or not self.mailLogFrame:IsShown() then return end
+    if not self.mailLogFrame.content then return end
 
-    filteredMailList = FilterData(whisperDB.log.mail, currentMailFilter, currentTypeFilter, showAllCharacters)
-    displayList = {}
+    self.filteredMailList = FilterData(whisperDB.log.mail, self.currentMailFilter, self.currentTypeFilter, self.showAllCharacters)
+    self.displayList = {}
     local lastDateKey = nil
 
-    for _, entry in ipairs(filteredMailList) do
+    for _, entry in ipairs(self.filteredMailList) do
         local entryDateKey = GetDateKey(entry.timestamp)
         if entryDateKey ~= lastDateKey then
-            tinsert(displayList, { isHeader = true, text = FormatDateHeader(entry.timestamp) })
+            tinsert(self.displayList, { isHeader = true, text = FormatDateHeader(entry.timestamp) })
             lastDateKey = entryDateKey
         end
-        tinsert(displayList, entry)
+        tinsert(self.displayList, entry)
     end
 
-    for _, row in ipairs(mailRowPool) do row:Hide() end
-    if #displayList == 0 then if mailLogFrame.emptyState then mailLogFrame.emptyState:Show() end
-    else if mailLogFrame.emptyState then mailLogFrame.emptyState:Hide() end end
+    for _, row in ipairs(self.mailRowPool) do row:Hide() end
+    if #self.displayList == 0 then if self.mailLogFrame.emptyState then self.mailLogFrame.emptyState:Show() end
+    else if self.mailLogFrame.emptyState then self.mailLogFrame.emptyState:Hide() end end
 
     local yOffset = 0
-    for i, item in ipairs(displayList) do
-        local row = mailRowPool[i]
+    for i, item in ipairs(self.displayList) do
+        local row = self.mailRowPool[i]
         if not row then
-            row = CreateDynamicRow(mailLogFrame.content)
-            mailRowPool[i] = row
+            row = CreateDynamicRow(self.mailLogFrame.content)
+            self.mailRowPool[i] = row
             row:SetScript("OnClick", function()
                 if not row.isHeader then
                     row.data.expanded = not row.data.expanded
-                    Log:RefreshMailLog()
+                    self:RefreshMailLog()
                 end
             end)
         end
@@ -1022,9 +1013,5 @@ function Log:RefreshMailLog()
             end
         end
     end
-    mailLogFrame.content:SetHeight(yOffset)
+    self.mailLogFrame.content:SetHeight(yOffset)
 end
-
-function Log:CreateGuildBankButton() end
-function Log:ToggleGuildLog() end
-function Log:RefreshGuildLog() end

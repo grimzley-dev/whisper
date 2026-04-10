@@ -2,6 +2,15 @@ local addonName, whisper = ...
 local Deaths = {}
 Deaths.enabled = true
 Deaths.isTestMode = false 
+
+-- 1. DEFINE OUR DEFAULTS HERE
+Deaths.defaults = {
+    limit = 5,
+    offsetX = 0,
+    offsetY = 10,
+    growUp = true
+}
+
 whisper:RegisterModule("Death Tracker", Deaths)
 
 -- =========================
@@ -29,14 +38,6 @@ local RESET_WINDOW = 5.0
 local SPACING = 2
 local UPDATE_THROTTLE = 0.1
 
--- Default Values
-local DEFAULTS = {
-    limit = 5,
-    offsetX = 0,
-    offsetY = 10,
-    growUp = true
-}
-
 -- State
 local messageFrame
 local deadCache = {}
@@ -54,7 +55,7 @@ local function ResetSpamCounter()
 end
 
 local function AnnounceDeath(name, classFilename)
-    local limit = whisperDB.deathTracker.limit or DEFAULTS.limit
+    local limit = whisperDB.deathTracker.limit
     if recentDeaths >= limit then return end
 
     if recentDeaths == 0 then
@@ -137,7 +138,7 @@ function Deaths:ToggleTestMode()
             colorStr = "|c" .. color:GenerateHexColor()
         end
 
-        local limit = whisperDB.deathTracker.limit or DEFAULTS.limit
+        local limit = whisperDB.deathTracker.limit
         for i = 1, limit do
             messageFrame:AddMessage(format("%s%s|r died (%d)", colorStr, name, i))
         end
@@ -157,13 +158,12 @@ function Deaths:UpdateSettings()
     local db = whisperDB.deathTracker
     messageFrame:ClearAllPoints()
 
-    local limit = db.limit or DEFAULTS.limit
+    local limit = db.limit
     local height = (limit * FONT_SIZE) + ((limit - 1) * SPACING)
 
     messageFrame:SetSize(600, height)
     messageFrame:SetMaxLines(limit)
 
-    -- Added Fallbacks so /reload math doesn't break if UIParent isn't ready
     local screenWidth = UIParent:GetWidth() or GetScreenWidth()
     local screenHeight = UIParent:GetHeight() or GetScreenHeight()
 
@@ -187,11 +187,9 @@ function Deaths:UpdateSettings()
 end
 
 function Deaths:ResetDefaults()
-    local db = whisperDB.deathTracker
-    db.limit = DEFAULTS.limit
-    db.offsetX = DEFAULTS.offsetX
-    db.offsetY = DEFAULTS.offsetY
-    db.growUp = DEFAULTS.growUp
+    for k, v in pairs(self.defaults) do
+        whisperDB.deathTracker[k] = v
+    end
     self:UpdateSettings()
 end
 
@@ -205,13 +203,6 @@ end
 
 function Deaths:Init()
     self.enabled = true
-    if not whisperDB.deathTracker then whisperDB.deathTracker = {} end
-    local db = whisperDB.deathTracker
-
-    if db.limit == nil then db.limit = DEFAULTS.limit end
-    if db.offsetX == nil then db.offsetX = DEFAULTS.offsetX end
-    if db.offsetY == nil then db.offsetY = DEFAULTS.offsetY end
-    if db.growUp == nil then db.growUp = DEFAULTS.growUp end
 
     if not messageFrame then
         messageFrame = CreateFrame("ScrollingMessageFrame", nil, UIParent)
@@ -242,7 +233,6 @@ function Deaths:Init()
                 resetTimer = nil
                 Deaths:CheckZone()
 
-                -- The Fix: Re-apply settings on load
                 if event == "PLAYER_ENTERING_WORLD" then
                     Deaths:UpdateSettings()
                 end
@@ -273,4 +263,85 @@ function Deaths:Disable()
     if self.isTestMode then
         self:ToggleTestMode()
     end
+end
+
+-- =========================
+-- Config Panel UI
+-- =========================
+function Deaths:BuildOptionsPanel(content, toggleBtn)
+    local db = whisperDB.deathTracker
+    local yStart = -80
+
+    local testBtn = whisper.GUI.CreateStyledButton(content, "Test", 80, 24)
+    testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
+    testBtn:GetFontString():SetTextColor(1, 1, 1)
+    testBtn:SetScript("OnClick", function()
+        if self.ToggleTestMode then
+            self:ToggleTestMode()
+            if self.isTestMode then
+                testBtn:SetText("End")
+                testBtn:GetFontString():SetTextColor(1, 0.2, 0.2)
+            else
+                testBtn:SetText("Test")
+                testBtn:GetFontString():SetTextColor(1, 1, 1)
+            end
+        end
+    end)
+    self.testButton = testBtn
+
+    local resetBtn = whisper.GUI.CreateStyledButton(content, "Reset", 80, 24)
+    resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
+    resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
+
+    local sliderRefs = {}
+    local xSlider = whisper.GUI.CreateCustomSlider(content, "X Offset", -100, 100, 1,
+        function() return db.offsetX end,
+        function(val) db.offsetX = val; if self.UpdateSettings then self:UpdateSettings() end end
+    )
+    xSlider:SetPoint("TOPLEFT", 0, yStart)
+    sliderRefs.xSlider = xSlider
+
+    local ySlider = whisper.GUI.CreateCustomSlider(content, "Y Offset", -100, 100, 1,
+        function() return db.offsetY end,
+        function(val) db.offsetY = val; if self.UpdateSettings then self:UpdateSettings() end end
+    )
+    ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
+    sliderRefs.ySlider = ySlider
+
+    local limitSlider = whisper.GUI.CreateCustomSlider(content, "Death Limit", 1, 20, 1,
+        function() return db.limit end,
+        function(val) db.limit = val; if self.UpdateSettings then self:UpdateSettings() end end
+    )
+    limitSlider:SetPoint("TOPLEFT", 0, yStart - 120)
+    sliderRefs.limitSlider = limitSlider
+
+    local growBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
+    growBtn:SetPoint("TOPLEFT", 0, yStart - 180)
+
+    local function UpdateGrowText()
+        if db.growUp then
+            growBtn:SetText("Grow Up")
+            growBtn:GetFontString():SetTextColor(0.5, 0.5, 1)
+        else
+            growBtn:SetText("Grow Down")
+            growBtn:GetFontString():SetTextColor(0.5, 0.5, 1)
+        end
+    end
+    UpdateGrowText()
+
+    growBtn:SetScript("OnClick", function()
+        db.growUp = not db.growUp
+        UpdateGrowText()
+        if self.UpdateSettings then self:UpdateSettings() end
+    end)
+
+    resetBtn:SetScript("OnClick", function()
+        if self.ResetDefaults then
+            self:ResetDefaults()
+            if sliderRefs.xSlider and sliderRefs.xSlider.UpdateVisuals then sliderRefs.xSlider.UpdateVisuals(db.offsetX) end
+            if sliderRefs.ySlider and sliderRefs.ySlider.UpdateVisuals then sliderRefs.ySlider.UpdateVisuals(db.offsetY) end
+            if sliderRefs.limitSlider and sliderRefs.limitSlider.UpdateVisuals then sliderRefs.limitSlider.UpdateVisuals(db.limit) end
+            UpdateGrowText()
+        end
+    end)
 end

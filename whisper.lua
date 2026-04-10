@@ -36,6 +36,23 @@ local COLOR_DISABLED = whisper.Style.Colors.Disabled
 local COLOR_RESET = whisper.Style.Colors.Reset
 
 -- =========================================================================
+-- DATABASE DEFAULTS MERGER
+-- =========================================================================
+local function MergeDefaults(target, defaults)
+    if type(defaults) ~= "table" then return end
+    for k, v in pairs(defaults) do
+        if type(v) == "table" then
+            if type(target[k]) ~= "table" then
+                target[k] = {}
+            end
+            MergeDefaults(target[k], v)
+        elseif target[k] == nil then
+            target[k] = v
+        end
+    end
+end
+
+-- =========================================================================
 -- ADDON LOADING & INITIALIZATION
 -- =========================================================================
 local frame = CreateFrame("Frame")
@@ -44,12 +61,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
         if name == addonName then
-            whisperDB.deaths = whisperDB.deaths or {
-                offsetX = 0,
-                offsetY = 150,
-                limit = 5,
-                growUp = true
-            }
             whisper:InitModules()
         end
     end
@@ -65,11 +76,21 @@ end
 
 function whisper:InitModules()
     whisperDB.modules = whisperDB.modules or {}
-    for name, module in pairs(self.modules) do
 
-        -- CORE FIX: Sync the module's state from the database after it has loaded
+    for name, module in pairs(self.modules) do
+        -- Sync the module's state from the database
         if whisperDB.modules[name] ~= nil then
             module.enabled = whisperDB.modules[name]
+        end
+
+        -- NEW: Map the database key (e.g. "Death Tracker" -> "deathTracker")
+        -- If the module specified a custom dbKey, use it. Otherwise, lowercase and strip spaces.
+        local dbKey = module.dbKey or name:gsub("%s+", ""):gsub("^%u", string.lower)
+
+        if module.defaults then
+            whisperDB[dbKey] = whisperDB[dbKey] or {}
+            MergeDefaults(whisperDB[dbKey], module.defaults)
+            module.db = whisperDB[dbKey] -- Give the module an easy reference to its DB!
         end
 
         if module.Init and module.enabled then
@@ -92,13 +113,8 @@ SlashCmdList["SHH"] = function(msg)
     local cmd = args[1] or ""
     local target = args[2] or ""
 
-    -- OPENS CONFIG PANEL
     if cmd == "" or cmd == "config" or cmd == "settings" or cmd == "options" then
-        if whisper.OpenSettings then
-            whisper:OpenSettings()
-        else
-            print(COLOR_ADDON .. "whisper" .. COLOR_RESET .. " Settings panel not loaded yet")
-        end
+        if whisper.OpenSettings then whisper:OpenSettings() else print(COLOR_ADDON .. "whisper" .. COLOR_RESET .. " Settings panel not loaded yet") end
         return
     end
 
@@ -107,25 +123,16 @@ SlashCmdList["SHH"] = function(msg)
         print("  /shh - Open config panel")
         print("  /shh enable <module> - Enable module")
         print("  /shh disable <module> - Disable module")
-        print("  /shh test <module> - Toggle test mode (e.g., /shh test loot)")
+        print("  /shh test <module> - Toggle test mode")
         return
     end
 
-    -- TEST COMMAND HANDLER
     if cmd == "test" then
-        if target == "" then
-            print(COLOR_ADDON .. "whisper" .. COLOR_RESET .. " Usage: /shh test <module>")
-            return
-        end
-
+        if target == "" then print(COLOR_ADDON .. "whisper" .. COLOR_RESET .. " Usage: /shh test <module>") return end
         local modName
         for name, module in pairs(whisper.modules) do
-            if name:lower():find(target, 1, true) == 1 then
-                modName = name
-                break
-            end
+            if name:lower():find(target, 1, true) == 1 then modName = name break end
         end
-
         if modName then
             local module = whisper.modules[modName]
             if module.ToggleTestMode then
@@ -141,15 +148,11 @@ SlashCmdList["SHH"] = function(msg)
         return
     end
 
-    -- ENABLE / DISABLE / STATUS (Simplified)
     if cmd == "enable" or cmd == "disable" then
         if target == "" then return end
         local modName
         for name, module in pairs(whisper.modules) do
-            if name:lower():find(target, 1, true) == 1 then
-                modName = name
-                break
-            end
+            if name:lower():find(target, 1, true) == 1 then modName = name break end
         end
 
         if modName then

@@ -11,7 +11,6 @@ local unpack = unpack
 local GetInstanceInfo = GetInstanceInfo
 local InCombatLockdown = InCombatLockdown
 local C_Timer = C_Timer
-local eventFrame
 
 -- ElvUI macro conditions
 local DefaultVisibility = {
@@ -88,19 +87,19 @@ function MythicFrames:Init()
     -- Safely exit if ElvUI isn't installed
     if not _G.ElvUI then return end
 
-    if not eventFrame then
-        eventFrame = CreateFrame("Frame")
-        eventFrame:SetScript("OnEvent", function(self, event)
+    if not self.eventFrame then
+        self.eventFrame = CreateFrame("Frame")
+        self.eventFrame:SetScript("OnEvent", function(_, event)
             -- Delay the check slightly to allow instance data to load completely
             C_Timer.After(1, function()
-                MythicFrames:UpdateRaidVisibility()
+                self:UpdateRaidVisibility()
             end)
         end)
     end
 
     -- Zone changes and group loading are the only times difficulty changes
-    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    self.eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 
     -- Run once immediately on load
     self:UpdateRaidVisibility()
@@ -109,8 +108,8 @@ end
 function MythicFrames:Disable()
     self.enabled = false
 
-    if eventFrame then
-        eventFrame:UnregisterAllEvents()
+    if self.eventFrame then
+        self.eventFrame:UnregisterAllEvents()
     end
 
     -- Revert back to default if disabled mid-raid

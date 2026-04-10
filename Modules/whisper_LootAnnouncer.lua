@@ -3,6 +3,16 @@ local LootAnnouncer = {}
 LootAnnouncer.enabled = true
 LootAnnouncer.isTestMode = false
 LootAnnouncer.displayName = "Loot Announcer"
+
+LootAnnouncer.defaults = {
+    offsetX = 10,
+    offsetY = 10,
+    soundEnabled = true,
+    coloredName = true,
+    showOthers = true,
+    showTime = 10,
+}
+
 whisper:RegisterModule("Loot Announcer", LootAnnouncer)
 
 -- =========================================================================
@@ -21,13 +31,6 @@ local MAX_VISIBLE = 6
 local BG_COLOR = {0.031, 0.031, 0.031, 0.9}
 local BORDER_COLOR = {0, 0, 0, 1}
 
--- State & Config
-local config = {
-    coloredName = true,
-    showOthers = true,
-    showTime = 10,
-}
-
 local containerFrame
 local anchorFrame
 local activeAnnouncements = {}
@@ -40,7 +43,6 @@ local inCombat = false
 -- =========================================================================
 -- UTILITY FUNCTIONS
 -- =========================================================================
-
 local function GetClassColorObj(playerName)
     local name = strsplit("-", playerName) or playerName
     local _, class = UnitClass(playerName)
@@ -61,7 +63,8 @@ local function GetClassColoredName(playerName)
 end
 
 local function GetQualityColoredName(itemName, quality)
-    if not config.coloredName or not quality then return itemName end
+    local db = whisperDB.lootAnnouncer
+    if not db.coloredName or not quality then return itemName end
     local color = ITEM_QUALITY_COLORS[quality]
     return color and color.color:WrapTextInColorCode(itemName) or itemName
 end
@@ -168,8 +171,12 @@ end
 local function UpdateContainerPosition()
     if not containerFrame then return end
     local db = whisperDB.lootAnnouncer
+
+    local sw = UIParent:GetWidth() or GetScreenWidth()
+    local sh = UIParent:GetHeight() or GetScreenHeight()
+
     containerFrame:ClearAllPoints()
-    containerFrame:SetPoint("TOPLEFT", UIParent, "CENTER", db.offsetX, db.offsetY)
+    containerFrame:SetPoint("TOPLEFT", UIParent, "CENTER", (db.offsetX / 100) * sw, (db.offsetY / 100) * sh)
 end
 
 local function CreateInterface()
@@ -209,8 +216,8 @@ local function CreateInterface()
         if sw > 0 and sh > 0 then
             local left = containerFrame:GetLeft()
             local top = containerFrame:GetTop()
-            whisperDB.lootAnnouncer.offsetX = left - (sw / 2)
-            whisperDB.lootAnnouncer.offsetY = top - (sh / 2)
+            whisperDB.lootAnnouncer.offsetX = (left - (sw / 2)) / sw * 100
+            whisperDB.lootAnnouncer.offsetY = (top - (sh / 2)) / sh * 100
         end
     end)
 
@@ -279,7 +286,7 @@ function LootAnnouncer:CreateAnnouncement(data)
     frame.playerText:SetText(data.awardedName)
     frame.itemText:SetText(data.name)
 
-    frame.expirationTime = data.isTest and (GetTime() + 10) or (GetTime() + config.showTime)
+    frame.expirationTime = data.isTest and (GetTime() + 10) or (GetTime() + whisperDB.lootAnnouncer.showTime)
     table.insert(activeAnnouncements, frame)
 
     if #activeAnnouncements > MAX_VISIBLE then
@@ -291,7 +298,6 @@ function LootAnnouncer:CreateAnnouncement(data)
         end
     end
 
-    -- Play sound if not in test mode AND sound is enabled in settings
     if not data.isTest and whisperDB.lootAnnouncer.soundEnabled then
         PlaySound(165970, "Master")
     end
@@ -322,20 +328,14 @@ end
 -- =========================================================================
 -- CONFIG FUNCTIONS
 -- =========================================================================
-
 function LootAnnouncer:UpdateSettings()
     UpdateContainerPosition()
 end
 
 function LootAnnouncer:ResetDefaults()
-    if not whisperDB.lootAnnouncer then whisperDB.lootAnnouncer = {} end
-    local db = whisperDB.lootAnnouncer
-    local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
-
-    db.offsetX = (10 / 100) * sw
-    db.offsetY = (10 / 100) * sh
-    db.soundEnabled = true -- Reset sound back to default ON
-
+    for k, v in pairs(self.defaults) do
+        whisperDB.lootAnnouncer[k] = v
+    end
     self:UpdateSettings()
 end
 
@@ -343,20 +343,16 @@ end
 -- =========================================================================
 -- EVENTS & CHAT
 -- =========================================================================
-
 local function HandleRaidMessage(message)
-    -- OUT OF COMBAT GUARD
     if inCombat then return end
 
-    -- HARDENED FOR 12.0: Wrap the chat parsing in a pcall to prevent Secret String crashes
     local ok, playerName, itemLink = pcall(string.match, message, "(%S+) was awarded with (|c.-|r) for")
-
-    -- If it's a secret string or doesn't match the format, safely ignore it
     if not ok or not playerName or not itemLink then return end
 
     local simpleName = strsplit("-", playerName)
     local mine = UnitIsUnit("player", simpleName)
-    if not mine and not config.showOthers then return end
+
+    if not mine and not whisperDB.lootAnnouncer.showOthers then return end
 
     local itemName, _, itemQuality, itemLevel, _, _, _, _, _, itemTexture = C_Item.GetItemInfo(itemLink)
     local itemID = C_Item.GetItemIDForItemInfo(itemLink)
@@ -383,19 +379,11 @@ end
 function LootAnnouncer:Init()
     self.enabled = true
     inCombat = InCombatLockdown()
-    if not whisperDB.lootAnnouncer then whisperDB.lootAnnouncer = {} end
-    local db = whisperDB.lootAnnouncer
-    local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
-
-    if db.offsetX == nil then db.offsetX = (10 / 100) * sw end
-    if db.offsetY == nil then db.offsetY = (10 / 100) * sh end
-    if db.soundEnabled == nil then db.soundEnabled = true end
 
     CreateInterface()
     UpdateContainerPosition()
     if containerFrame then containerFrame:Show() end
 
-    -- Safe Event Registration
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
         eventFrame:SetScript("OnEvent", function(_, event, msg)
@@ -414,7 +402,6 @@ function LootAnnouncer:Init()
     eventFrame:RegisterEvent("CHAT_MSG_RAID")
     eventFrame:RegisterEvent("CHAT_MSG_RAID_LEADER")
 
-    -- Safe Ticker Creation
     if not self.expirationTicker then
         self.expirationTicker = C_Timer.NewTicker(1, function()
             local now = GetTime()
@@ -428,25 +415,22 @@ function LootAnnouncer:Init()
 end
 
 function LootAnnouncer:Disable()
+    -- 1. Stop the test mode BEFORE setting enabled to false!
+    if self.isTestMode then
+        self:ToggleTestMode()
+    end
+
     self.enabled = false
 
-    -- 1. Stop listening for chat messages immediately
     if eventFrame then
         eventFrame:UnregisterAllEvents()
     end
 
-    -- 2. Stop the expiration loop
     if self.expirationTicker then
         self.expirationTicker:Cancel()
         self.expirationTicker = nil
     end
 
-    -- 3. Kill Test Mode if they disabled the module while testing
-    if self.isTestMode then
-        self:ToggleTestMode()
-    end
-
-    -- 4. Hide the frame and sweep all current visual notifications away
     if containerFrame then
         containerFrame:Hide()
     end
@@ -460,14 +444,22 @@ function LootAnnouncer:Disable()
 end
 
 function LootAnnouncer:ToggleTestMode()
-    -- Block test mode if module is disabled
     if not self.enabled then
         self.isTestMode = false
+        -- Safety catch: kill the ticker if someone tries to force test mode while disabled
+        if testTicker then testTicker:Cancel() testTicker = nil end
+        if anchorFrame then anchorFrame:Hide() anchorFrame:EnableMouse(false) end
         return
     end
 
     self.isTestMode = not self.isTestMode
     if not containerFrame then CreateInterface() end
+
+    -- Always clear any existing ticker safely before making a new one to prevent orphans
+    if testTicker then
+        testTicker:Cancel()
+        testTicker = nil
+    end
 
     if self.isTestMode then
         anchorFrame:Show()
@@ -509,7 +501,7 @@ function LootAnnouncer:ToggleTestMode()
 
             if itemName then
                 self:CreateAnnouncement({
-                    key = "TEST_" .. GetTime(),
+                    key = "TEST_" .. GetTime() .. math.random(1000),
                     icon = itemTexture,
                     name = GetQualityColoredName(itemName, itemQuality),
                     link = itemLink,
@@ -522,7 +514,6 @@ function LootAnnouncer:ToggleTestMode()
     else
         anchorFrame:Hide()
         anchorFrame:EnableMouse(false)
-        if testTicker then testTicker:Cancel() testTicker = nil end
 
         for i = #activeAnnouncements, 1, -1 do
             local frame = activeAnnouncements[i]
@@ -533,9 +524,71 @@ function LootAnnouncer:ToggleTestMode()
     end
 end
 
-function LootAnnouncer:HandleCommand(args)
-    local cmd = args[1] or ""
-    if cmd == "test" then
-        self:ToggleTestMode()
+-- =========================
+-- Config Panel UI
+-- =========================
+function LootAnnouncer:BuildOptionsPanel(content, toggleBtn)
+    local yStart = -80
+    local db = whisperDB.lootAnnouncer
+
+    local testBtn = whisper.GUI.CreateStyledButton(content, "Test", 80, 24)
+    testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
+    local function UpdateTestText()
+        if self.isTestMode then
+            testBtn:SetText("End")
+            testBtn:GetFontString():SetTextColor(1, 0.2, 0.2)
+        else
+            testBtn:SetText("Test")
+            testBtn:GetFontString():SetTextColor(1, 1, 1)
+        end
     end
+    testBtn:SetScript("OnClick", function()
+        if self.ToggleTestMode then self:ToggleTestMode() UpdateTestText() end
+    end)
+    self.testButton = testBtn
+
+    local resetBtn = whisper.GUI.CreateStyledButton(content, "Reset", 80, 24)
+    resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
+    resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
+
+    local xSlider = whisper.GUI.CreateCustomSlider(content, "X Offset", -50, 50, 1,
+        function() return math.floor(db.offsetX + 0.5) end,
+        function(val) db.offsetX = val if self.UpdateSettings then self:UpdateSettings() end end
+    )
+    xSlider:SetPoint("TOPLEFT", 0, yStart)
+
+    local ySlider = whisper.GUI.CreateCustomSlider(content, "Y Offset", -50, 50, 1,
+        function() return math.floor(db.offsetY + 0.5) end,
+        function(val) db.offsetY = val if self.UpdateSettings then self:UpdateSettings() end end
+    )
+    ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
+
+    local soundBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
+    soundBtn:SetPoint("TOPLEFT", 0, yStart - 120)
+
+    local function UpdateSoundText()
+        if db.soundEnabled then
+            soundBtn:SetText("Sound Alert: ON")
+            soundBtn:GetFontString():SetTextColor(0.5, 0.5, 1)
+        else
+            soundBtn:SetText("Sound Alert: OFF")
+            soundBtn:GetFontString():SetTextColor(0.6, 0.6, 0.6)
+        end
+    end
+    UpdateSoundText()
+
+    soundBtn:SetScript("OnClick", function()
+        db.soundEnabled = not db.soundEnabled
+        UpdateSoundText()
+        if self.UpdateSettings then self:UpdateSettings() end
+    end)
+
+    resetBtn:SetScript("OnClick", function()
+        if self.ResetDefaults then
+            self:ResetDefaults()
+            if xSlider and xSlider.UpdateVisuals then xSlider.UpdateVisuals(math.floor(db.offsetX + 0.5)) end
+            if ySlider and ySlider.UpdateVisuals then ySlider.UpdateVisuals(math.floor(db.offsetY + 0.5)) end
+            UpdateSoundText()
+        end
+    end)
 end

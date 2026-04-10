@@ -23,41 +23,41 @@ local strsplit = strsplit
 -- =========================================================================
 -- UI FRAME GENERATION
 -- =========================================================================
-local function EnsureAlertFrameExists()
-    if PIHelper.alertFrame then return end
+function PIHelper:EnsureAlertFrameExists()
+    if self.alertFrame then return end
 
-    PIHelper.alertFrame = CreateFrame("Frame", "whisperPIAlertFrame", UIParent)
-    PIHelper.alertFrame:SetSize(200, 50)
-    PIHelper.alertFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
-    PIHelper.alertFrame:Hide()
+    self.alertFrame = CreateFrame("Frame", "whisperPIAlertFrame", UIParent)
+    self.alertFrame:SetSize(200, 50)
+    self.alertFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+    self.alertFrame:Hide()
 
-    PIHelper.text = PIHelper.alertFrame:CreateFontString(nil, "OVERLAY")
-    PIHelper.text:SetPoint("CENTER")
-    PIHelper.text:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
-    PIHelper.text:SetShadowColor(0, 0, 0, 0)
-    PIHelper.text:SetShadowOffset(0, 0)
+    self.text = self.alertFrame:CreateFontString(nil, "OVERLAY")
+    self.text:SetPoint("CENTER")
+    self.text:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+    self.text:SetShadowColor(0, 0, 0, 0)
+    self.text:SetShadowOffset(0, 0)
 
-    PIHelper.animGroup = PIHelper.alertFrame:CreateAnimationGroup()
-    local fadeIn = PIHelper.animGroup:CreateAnimation("Alpha")
+    self.animGroup = self.alertFrame:CreateAnimationGroup()
+    local fadeIn = self.animGroup:CreateAnimation("Alpha")
     fadeIn:SetFromAlpha(0)
     fadeIn:SetToAlpha(1)
     fadeIn:SetDuration(0.4)
     fadeIn:SetOrder(1)
 
-    local hold = PIHelper.animGroup:CreateAnimation("Alpha")
+    local hold = self.animGroup:CreateAnimation("Alpha")
     hold:SetFromAlpha(1)
     hold:SetToAlpha(1)
     hold:SetDuration(8)
     hold:SetOrder(2)
 
-    local fadeOut = PIHelper.animGroup:CreateAnimation("Alpha")
+    local fadeOut = self.animGroup:CreateAnimation("Alpha")
     fadeOut:SetFromAlpha(1)
     fadeOut:SetToAlpha(0)
     fadeOut:SetDuration(0.4)
     fadeOut:SetOrder(3)
 
-    PIHelper.animGroup:SetScript("OnFinished", function()
-        if not PIHelper.isTestMode then PIHelper.alertFrame:Hide() end
+    self.animGroup:SetScript("OnFinished", function()
+        if not self.isTestMode then self.alertFrame:Hide() end
     end)
 end
 
@@ -76,7 +76,7 @@ function PIHelper:Init()
     self.enabled = true
 
     self.frame = self.frame or CreateFrame("Frame")
-    EnsureAlertFrameExists()
+    self:EnsureAlertFrameExists()
 
     -- CLASS GUARD: Non-priests will not register for any combat/whisper events
     -- but remain "enabled" so the Test Mode UI functions normally.
@@ -171,4 +171,95 @@ function PIHelper:Disable()
     if self.isTestMode then
         self:ToggleTestMode(false)
     end
+end
+
+-- =========================
+-- Config Panel UI
+-- =========================
+local function GetClassColoredName(unit, nameCounts)
+    local name, realm = UnitName(unit)
+    if not name then return nil end
+    local _, class = UnitClass(unit)
+    local color = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[class] or {r=1, g=1, b=1}
+
+    local displayName = name
+    if nameCounts and nameCounts[name] and nameCounts[name] > 1 then
+        if realm and realm ~= "" then displayName = name .. "-" .. realm end
+    end
+
+    local raw = (realm and realm ~= "") and (name.."-"..realm) or name
+    local colored = string.format("|cff%02x%02x%02x%s|r", color.r*255, color.g*255, color.b*255, displayName)
+    return colored, raw
+end
+
+local function GetGroupMembers()
+    local members = { {text = "None", value = "None"} }
+    local units = {"player"}
+    local num = GetNumGroupMembers()
+    if num > 0 then
+        local prefix = IsInRaid() and "raid" or "party"
+        for i = 1, num do
+            local unit = prefix .. i
+            if UnitExists(unit) and not UnitIsUnit(unit, "player") then table.insert(units, unit) end
+        end
+    end
+
+    local counts = {}
+    for _, u in ipairs(units) do
+        local n = UnitName(u)
+        if n then counts[n] = (counts[n] or 0) + 1 end
+    end
+
+    for _, u in ipairs(units) do
+        local colored, raw = GetClassColoredName(u, counts)
+        if raw then table.insert(members, {text = colored, value = raw}) end
+    end
+
+    return members
+end
+
+function PIHelper:BuildOptionsPanel(content, toggleBtn)
+    if not whisperDB.piHelper then whisperDB.piHelper = {} end
+    local db = whisperDB.piHelper
+
+    local testBtn = whisper.GUI.CreateStyledButton(content, "Test", 80, 24)
+    testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
+    local function UpdateTestText()
+        if self.isTestMode then
+            testBtn:SetText("End")
+            testBtn:GetFontString():SetTextColor(1, 0.2, 0.2)
+        else
+            testBtn:SetText("Test")
+            testBtn:GetFontString():SetTextColor(1, 1, 1)
+        end
+    end
+    testBtn:SetScript("OnClick", function()
+        if self.ToggleTestMode then self:ToggleTestMode() UpdateTestText() end
+    end)
+    self.testButton = testBtn
+
+    local soundBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
+    soundBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
+    local function UpdateSoundBtn()
+        local isSoundOn = db.soundEnabled ~= false
+        soundBtn:SetText(isSoundOn and "Sound Alert: ON" or "Sound Alert: OFF")
+        if isSoundOn then
+            soundBtn:GetFontString():SetTextColor(0.5, 0.5, 1)
+        else
+            soundBtn:GetFontString():SetTextColor(0.6, 0.6, 0.6)
+        end
+    end
+    UpdateSoundBtn()
+
+    soundBtn:SetScript("OnClick", function()
+        db.soundEnabled = not (db.soundEnabled ~= false)
+        UpdateSoundBtn()
+    end)
+
+    local dd = whisper.GUI.CreateCustomDropdown(content, 180, 24,
+        function() return whisperDB.piTarget or "None" end,
+        function(val) whisperDB.piTarget = val end,
+        GetGroupMembers
+    )
+    dd:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -20)
 end
