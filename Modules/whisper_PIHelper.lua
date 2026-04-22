@@ -18,7 +18,14 @@ local InCombatLockdown = InCombatLockdown
 local IsInInstance = IsInInstance
 local GetTime = GetTime
 local UnitName = UnitName
-local strsplit = strsplit
+local strsplit = string.split or strsplit
+local UnitIsUnit = UnitIsUnit
+local IsInRaid = IsInRaid
+local C_Timer = C_Timer
+local C_Spell = C_Spell
+
+-- State
+local glowFrames = {}
 
 -- =========================================================================
 -- UI FRAME GENERATION
@@ -69,6 +76,107 @@ local function GetNameOnly(fullName)
 end
 
 -- =========================================================================
+-- GLOW UTILITIES
+-- =========================================================================
+local function GetUnitFrame(unitName)
+    local inRaid = IsInRaid()
+    if ElvUF then
+        if inRaid then
+            for group = 1, 8 do
+                for member = 1, 5 do
+                    local layouts = {"Raid", "Raid1", "Raid2", "Raid3"}
+                    for _, layout in ipairs(layouts) do
+                        local frame = _G["ElvUF_"..layout.."Group"..group.."UnitButton"..member]
+                        if frame and frame:IsVisible() and frame.unit and UnitIsUnit(frame.unit, unitName) then return frame end
+                    end
+                end
+            end
+        else
+            for i = 1, 5 do
+                local frame = _G["ElvUF_PartyGroup1UnitButton"..i]
+                if frame and frame:IsVisible() and frame.unit and UnitIsUnit(frame.unit, unitName) then return frame end
+            end
+            local playerFrame = _G["ElvUF_Player"]
+            if playerFrame and playerFrame:IsVisible() and playerFrame.unit and UnitIsUnit(playerFrame.unit, unitName) then return playerFrame end
+        end
+    end
+
+    if inRaid then
+        for i = 1, 40 do
+            local frame = _G["CompactRaidFrame"..i]
+            if frame and frame:IsVisible() and frame.unit and UnitIsUnit(frame.unit, unitName) then return frame end
+        end
+    else
+        if PartyFrame and PartyFrame.MemberFrames then
+            for _, frame in ipairs(PartyFrame.MemberFrames) do
+                if frame and frame:IsVisible() and frame.unit and UnitIsUnit(frame.unit, unitName) then return frame end
+            end
+        end
+        for i = 1, 5 do
+            local frame = _G["CompactPartyFrameMember"..i]
+            if frame and frame:IsVisible() and frame.unit and UnitIsUnit(frame.unit, unitName) then return frame end
+        end
+        local playerFrame = _G["PlayerFrame"]
+        if playerFrame and playerFrame:IsVisible() and playerFrame.unit and UnitIsUnit(playerFrame.unit, unitName) then return playerFrame end
+    end
+    return nil
+end
+
+local function StopGlow(frame, sender)
+    if frame then
+        frame:Hide()
+        local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+        if LCG and LCG.PixelGlow_Stop then LCG.PixelGlow_Stop(frame, "whisperPI_"..sender) end
+    end
+end
+
+function PIHelper:ShowGlow(senderShort)
+    local unitFrame = GetUnitFrame(senderShort)
+    if not unitFrame then return end
+
+    local overlay = glowFrames[senderShort]
+    if not overlay then
+        overlay = CreateFrame("Frame", nil, unitFrame)
+        overlay:SetFrameStrata("HIGH")
+        local icon = overlay:CreateTexture(nil, "OVERLAY")
+        overlay.icon = icon
+        glowFrames[senderShort] = overlay
+    end
+
+    overlay:SetParent(unitFrame)
+    overlay:SetAllPoints(unitFrame)
+    overlay:SetFrameLevel(9999)
+
+    -- Dynamically fetch the Power Infusion Icon (SpellID: 10060)
+    local iconTexture = 135939
+    if C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(10060)
+        if info then iconTexture = info.iconID end
+    else
+        _, _, iconTexture = GetSpellInfo(10060)
+    end
+
+    overlay.icon:ClearAllPoints()
+    overlay.icon:SetPoint("CENTER", overlay, "CENTER", 0, 0)
+    overlay.icon:SetSize(24, 24)
+    overlay.icon:SetTexture(iconTexture)
+    overlay:Show()
+
+    local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+    if LCG and LCG.PixelGlow_Start then
+        -- Same exact settings as Externals Tracker: color(Yellow), 6 lines, 0.3 speed, 25 length, 2 thickness, -1 offset
+        LCG.PixelGlow_Start(overlay, {1, 1, 0, 1}, 6, 0.3, 25, 2, -1, -1, false, "whisperPI_"..senderShort)
+    end
+
+    -- Cleanup the glow after 10 seconds if PI was never cast
+    C_Timer.After(10, function()
+        if overlay and overlay:IsShown() then
+            StopGlow(overlay, senderShort)
+        end
+    end)
+end
+
+-- =========================================================================
 -- MODULE LOGIC
 -- =========================================================================
 
@@ -88,6 +196,8 @@ function PIHelper:Init()
 
     self.frame:SetScript("OnEvent", function(_, event, ...)
         if event == "CHAT_MSG_WHISPER" then
+            -- Removed the sender validation completely. Any whisper triggers this now.
+            local text, sender = ...
             local _, instanceType = IsInInstance()
             if instanceType ~= "party" and instanceType ~= "raid" then return end
 
@@ -97,6 +207,7 @@ function PIHelper:Init()
             if not selectedTarget or selectedTarget == "None" then return end
 
             local shortTarget = GetNameOnly(selectedTarget)
+
             local _, englishClass = UnitClass(selectedTarget)
 
             self:ProcessPIRequest(shortTarget, englishClass)
@@ -104,9 +215,15 @@ function PIHelper:Init()
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             local unitTarget, _, spellID = ...
             if unitTarget == "player" and spellID == 10060 then -- 10060 is Power Infusion
+                -- Hide Central Alert
                 if self.alertFrame then
                     self.animGroup:Stop()
                     self.alertFrame:Hide()
+                end
+
+                -- Stop any active Pixel Glows on raid frames
+                for sender, frame in pairs(glowFrames) do
+                    StopGlow(frame, sender)
                 end
             end
         end
@@ -128,6 +245,10 @@ function PIHelper:ProcessPIRequest(shortName, classTag)
         self.lastSoundTime = currentTime
     end
 
+    -- Trigger the new Unit Frame Pixel Glow + Icon
+    self:ShowGlow(shortName)
+
+    -- Trigger the Central Text Alert
     local color = (classTag and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classTag]) or {r=1, g=1, b=1}
     local hex = string.format("ff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
 
@@ -159,6 +280,10 @@ function PIHelper:ToggleTestMode(state)
             self.animGroup:Stop()
             self.alertFrame:Hide()
         end
+        -- Clean up Test Mode glows
+        for sender, frame in pairs(glowFrames) do
+            StopGlow(frame, sender)
+        end
     end
 end
 
@@ -170,6 +295,10 @@ function PIHelper:Disable()
 
     if self.isTestMode then
         self:ToggleTestMode(false)
+    end
+
+    for sender, frame in pairs(glowFrames) do
+        StopGlow(frame, sender)
     end
 end
 
