@@ -53,7 +53,6 @@ local LibKeystone = LibStub and LibStub:GetLibrary("LibKeystone", true)
 local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
 local ROW_HEIGHT = 38
-local ANCHOR_HEIGHT = 12
 local ROW_SPACING = 1
 local WIDTH_NORMAL = 210
 local WIDTH_COMPACT = 110
@@ -120,53 +119,129 @@ local pendingUpdate = false
 local isInActiveChallenge = false
 local lastBagScan = 0
 local lastCooldownRefresh = 0
+local rerollReminderShown = false
+
+-- =========================================================================
+-- HELPER FUNCTIONS
+-- =========================================================================
+-- Safely truncates strings counting UTF-8 characters instead of bytes
+local function utf8sub(str, maxLength)
+    if not str then return "" end
+    local len = #str
+    local charCount = 0
+    local bytePos = 1
+    while bytePos <= len and charCount < maxLength do
+        local b = string.byte(str, bytePos)
+        if not b then break end
+        if b < 128 then
+            bytePos = bytePos + 1
+        elseif b < 224 then
+            bytePos = bytePos + 2
+        elseif b < 240 then
+            bytePos = bytePos + 3
+        else
+            bytePos = bytePos + 4
+        end
+        charCount = charCount + 1
+    end
+    return string.sub(str, 1, bytePos - 1)
+end
 
 -- =========================================================================
 -- REROLL ALERT FRAME GENERATION
 -- =========================================================================
+function Keystones:EnsureRerollTestOverlay()
+    if self.rerollTestOverlayCtrl then return end
+
+    self.rerollTestOverlayCtrl = whisper.TestOverlay.Create({
+        name = "WhisperKeystoneRerollOverlay",
+        label = "Reroll Key?",
+        container = function() return self.rerollContainer end,
+        isActive = function() return Keystones.isTestMode end,
+        getContentFrames = function()
+            if Keystones.alertFrame and Keystones.alertFrame:IsShown() then
+                return { Keystones.alertFrame }
+            end
+            return {}
+        end,
+        dragMode = "move",
+        onDragStop = function()
+            local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+            if sw > 0 and sh > 0 and Keystones.rerollContainer then
+                local cx, cy = Keystones.rerollContainer:GetCenter()
+                whisperDB.keystones.rerollOffsetX = cx - (sw / 2)
+                whisperDB.keystones.rerollOffsetY = cy - (sh / 2)
+            end
+        end,
+    })
+end
+
+function Keystones:UpdateRerollTestOverlay()
+    if not self.isTestMode or not self.rerollContainer or not self.rerollContainer:IsShown() then
+        if self.rerollTestOverlayCtrl then self.rerollTestOverlayCtrl:Hide() end
+        return
+    end
+    self:EnsureRerollTestOverlay()
+    self.rerollTestOverlayCtrl:Update()
+end
+
+function Keystones:EnsureInterfaceTestOverlay()
+    if Interface.testOverlayCtrl then return end
+
+    Interface.testOverlayCtrl = whisper.TestOverlay.Create({
+        name = "WhisperKeystonesOverlay",
+        label = "Keystones",
+        container = function() return Interface.container end,
+        isActive = function() return Keystones.isTestMode end,
+        getContentFrames = function()
+            local frames = {}
+            for _, row in ipairs(Interface.rows) do
+                if row:IsShown() then
+                    table.insert(frames, row)
+                end
+            end
+            return frames
+        end,
+        dragMode = "move",
+        canDrag = function() return not InCombatLockdown() and Interface.container end,
+        onDragStop = function()
+            local growUp = whisperDB.keystones.growUp
+            local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+            if sw > 0 and sh > 0 and Interface.container then
+                local left = Interface.container:GetLeft()
+                local y = growUp and Interface.container:GetBottom() or Interface.container:GetTop()
+                whisperDB.keystones.offsetX = left - (sw / 2)
+                whisperDB.keystones.offsetY = y - (sh / 2)
+                Interface:UpdatePosition()
+            end
+        end,
+    })
+end
+
+function Keystones:UpdateInterfaceTestOverlay()
+    if not self.isTestMode or not Interface.container or not Interface.container:IsShown() then
+        if Interface.testOverlayCtrl then Interface.testOverlayCtrl:Hide() end
+        return
+    end
+    self:EnsureInterfaceTestOverlay()
+    Interface.testOverlayCtrl:Update()
+end
+
 function Keystones:EnsureAlertFrameExists()
     if self.alertFrame then return end
 
     local db = whisperDB.keystones
 
-    -- 1. Create the container frame (this is the anchor we drag)
-    self.alertAnchor = CreateFrame("Frame", "whisperKeystoneRerollAnchor", UIParent, "BackdropTemplate")
-    self.alertAnchor:SetSize(180, ANCHOR_HEIGHT)
-    self.alertAnchor:SetPoint("CENTER", UIParent, "CENTER", db.rerollOffsetX, db.rerollOffsetY)
-    self.alertAnchor:SetBackdrop({
-        bgFile = BAR_TEXTURE,
-        edgeFile = "Interface/Buttons/WHITE8X8",
-        edgeSize = 1,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 }
-    })
-    self.alertAnchor:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
-    self.alertAnchor:SetBackdropBorderColor(0, 0, 0, 1)
-    self.alertAnchor:SetMovable(true)
-    self.alertAnchor:EnableMouse(false)
-    self.alertAnchor:RegisterForDrag("LeftButton")
-    self.alertAnchor:Hide()
+    self.rerollContainer = CreateFrame("Frame", "whisperKeystoneRerollContainer", UIParent)
+    self.rerollContainer:SetSize(300, 50)
+    self.rerollContainer:SetPoint("CENTER", UIParent, "CENTER", db.rerollOffsetX, db.rerollOffsetY)
+    self.rerollContainer:SetClampedToScreen(true)
+    self.rerollContainer:SetMovable(true)
+    self.rerollContainer:Hide()
 
-    local anchorText = self.alertAnchor:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorText:SetPoint("CENTER", 0, 0)
-    anchorText:SetFont(STANDARD_FONT, 12)
-    anchorText:SetText("REROLL ANCHOR")
-    anchorText:SetTextColor(1, 1, 1)
-
-    self.alertAnchor:SetScript("OnDragStart", function(f) f:StartMoving() end)
-    self.alertAnchor:SetScript("OnDragStop", function(f)
-        f:StopMovingOrSizing()
-        local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
-        if sw > 0 and sh > 0 then
-            local cx, cy = f:GetCenter()
-            whisperDB.keystones.rerollOffsetX = cx - (sw / 2)
-            whisperDB.keystones.rerollOffsetY = cy - (sh / 2)
-        end
-    end)
-
-    -- 2. Create the actual text alert frame
-    self.alertFrame = CreateFrame("Frame", "whisperKeystoneRerollAlert", self.alertAnchor)
+    self.alertFrame = CreateFrame("Frame", "whisperKeystoneRerollAlert", self.rerollContainer)
     self.alertFrame:SetSize(300, 50)
-    self.alertFrame:SetPoint("TOP", self.alertAnchor, "BOTTOM", 0, -5)
+    self.alertFrame:SetPoint("TOP", self.rerollContainer, "TOP", 0, 0)
     self.alertFrame:Hide()
 
     self.text = self.alertFrame:CreateFontString(nil, "OVERLAY")
@@ -196,22 +271,107 @@ function Keystones:EnsureAlertFrameExists()
     fadeOut:SetOrder(3)
 
     self.animGroup:SetScript("OnFinished", function()
-        if not self.isTestMode then self.alertFrame:Hide() end
+        if Keystones.isTestMode then return end
+        if Keystones.alertFrame then Keystones.alertFrame:Hide() end
+        if Keystones.rerollContainer then Keystones.rerollContainer:Hide() end
+        if Keystones.rerollTestOverlayCtrl then Keystones.rerollTestOverlayCtrl:Hide() end
     end)
 end
 
 function Keystones:ShowRerollReminder()
+    if not self.enabled and not self.isTestMode then return end
+    if rerollReminderShown and not self.isTestMode then return end
     if not self.alertFrame then self:EnsureAlertFrameExists() end
+
+    rerollReminderShown = true
+    if self.isTestMode then
+        self.rerollContainer:SetFrameStrata("DIALOG")
+        self.rerollContainer:SetFrameLevel(100)
+    else
+        self.rerollContainer:SetFrameStrata("FULLSCREEN_DIALOG")
+        self.rerollContainer:SetFrameLevel(500)
+    end
+    self.rerollContainer:Show()
+    self:UpdateRerollTestOverlay()
+
     self.animGroup:Stop()
     self.alertFrame:SetAlpha(1)
     self.alertFrame:Show()
     self.animGroup:Play()
 end
 
+function Keystones:OnChallengeComplete()
+    isInActiveChallenge = false
+    Interface:Refresh()
+    Keystones:ShowRerollReminder()
+
+    C_Timer.After(5, function()
+        KeystoneManager:ScanOwnKey()
+        KeystoneManager:RequestKeys()
+    end)
+
+    C_Timer.After(15, function()
+        KeystoneManager:RequestKeys()
+    end)
+end
+
 
 -- =========================================================================
 -- DATA MANAGEMENT
 -- =========================================================================
+local function GetPlayerNickname(fullName, shortName)
+    -- Find the unit token for this player (needed for TimelineReminders)
+    local unitToken = nil
+    local myFullName = UnitName("player") .. "-" .. GetRealmName()
+
+    if fullName == myFullName then
+        unitToken = "player"
+    else
+        for i = 1, 4 do
+            local partyUnit = "party" .. i
+            if UnitExists(partyUnit) then
+                local n, r = UnitName(partyUnit)
+                r = r or GetRealmName()
+                if (n .. "-" .. r) == fullName then
+                    unitToken = partyUnit
+                    break
+                end
+            end
+        end
+    end
+
+    -- 1. TimelineReminders Check
+    if unitToken and _G.TimelineReminders and _G.TimelineReminders.GetNickname then
+        local trNick = _G.TimelineReminders:GetNickname(unitToken)
+        if trNick and trNick ~= "" then return trNick end
+    end
+
+    -- 2. NSRT Check
+    if _G.NSAPI and _G.NSAPI.GetName then
+        local nsrtNick = _G.NSAPI:GetName(fullName, "whisper")
+        if nsrtNick and nsrtNick ~= fullName and nsrtNick ~= shortName then
+            return nsrtNick
+        end
+    end
+
+    -- 3. NickTag / ElvUI Check (with cross-realm whitespace fix)
+    local cleanFullName = string.gsub(fullName, "%s+", "")
+    if _G.NickTag and _G.NickTag.nicknames and _G.NickTag.nicknames[cleanFullName] then
+        return _G.NickTag.nicknames[cleanFullName]
+    end
+
+    if _G.ElvUI then
+        local E = unpack(_G.ElvUI)
+        if E and E.GetNickName then
+            local elvNick = E:GetNickName(cleanFullName)
+            if elvNick and elvNick ~= "" then return elvNick end
+        end
+    end
+
+    -- 4. Fallback to standard short name
+    return shortName
+end
+
 function KeystoneManager:GetMapInfo(mapID)
     local info = DUNGEON_DB[mapID]
     local name, _, _, texture = C_ChallengeMode.GetMapUIInfo(mapID)
@@ -251,6 +411,9 @@ function KeystoneManager:UpdateEntry(sender, mapID, level)
 
     local shortName = fullName:match("(.+)-") or fullName
 
+    -- Run the nickname waterfall check!
+    local displayName = GetPlayerNickname(fullName, shortName)
+
     local _, classFilename = UnitClass(fullName)
     if not classFilename then _, classFilename = UnitClass(shortName) end
 
@@ -261,7 +424,7 @@ function KeystoneManager:UpdateEntry(sender, mapID, level)
     self.partyData[fullName] = {
         mapID = tonumber(mapID),
         level = tonumber(level),
-        displayName = shortName,
+        displayName = displayName, -- Now utilizing the retrieved nickname
         classColor = classColor,
         isPlayer = isMe
     }
@@ -378,30 +541,18 @@ end
 function Keystones:ToggleTestMode()
     self.isTestMode = not self.isTestMode
 
-    if not self.alertAnchor then self:EnsureAlertFrameExists() end
+    if not self.alertFrame then self:EnsureAlertFrameExists() end
 
-    -- Handle the Keystone Interface Anchor
-    if Interface.anchor then
-        if self.isTestMode then
-            Interface.anchor:Show()
-            Interface.anchor:EnableMouse(true)
-            Interface.anchor:SetFrameLevel(Interface.container:GetFrameLevel() + 20)
-        else
-            Interface.anchor:Hide()
-            Interface.anchor:EnableMouse(false)
-        end
-    end
-
-    -- Handle the Reroll Alert Anchor
+    -- Handle the Reroll Alert preview
     if self.isTestMode then
-        self.alertAnchor:Show()
-        self.alertAnchor:EnableMouse(true)
+        self.rerollContainer:Show()
         self.alertFrame:SetAlpha(1)
         self.alertFrame:Show()
-        self.animGroup:Stop() -- Stop animations from running while testing position
+        self.animGroup:Stop()
+        self:UpdateRerollTestOverlay()
     else
-        self.alertAnchor:Hide()
-        self.alertAnchor:EnableMouse(false)
+        self.rerollContainer:Hide()
+        if self.rerollTestOverlayCtrl then self.rerollTestOverlayCtrl:Hide() end
         self.alertFrame:Hide()
     end
 
@@ -425,11 +576,18 @@ function Keystones:ToggleTestMode()
             }
         end
         Interface:Refresh()
+        self:UpdateInterfaceTestOverlay()
     else
+        rerollReminderShown = false
         if self.alertFrame then
             self.animGroup:Stop()
             self.alertFrame:Hide()
         end
+        if self.rerollContainer then
+            self.rerollContainer:Hide()
+        end
+        if self.rerollTestOverlayCtrl then self.rerollTestOverlayCtrl:Hide() end
+        if Interface.testOverlayCtrl then Interface.testOverlayCtrl:Hide() end
         KeystoneManager.partyData = whisperDB.keystones.partyCache
         KeystoneManager:ScanOwnKey()
         if IsInGroup() then KeystoneManager:RequestKeys() end
@@ -449,9 +607,9 @@ function Keystones:ResetDefaults()
     Interface:UpdatePosition()
     Interface:Refresh()
 
-    if self.alertAnchor then
-        self.alertAnchor:ClearAllPoints()
-        self.alertAnchor:SetPoint("CENTER", UIParent, "CENTER", whisperDB.keystones.rerollOffsetX, whisperDB.keystones.rerollOffsetY)
+    if self.rerollContainer then
+        self.rerollContainer:ClearAllPoints()
+        self.rerollContainer:SetPoint("CENTER", UIParent, "CENTER", whisperDB.keystones.rerollOffsetX, whisperDB.keystones.rerollOffsetY)
     end
 end
 
@@ -504,6 +662,7 @@ local function CreateKeystoneRow(parent, index)
     row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     row.name:SetFont(STANDARD_FONT, 13, "OUTLINE")
     row.name:SetJustifyH("LEFT")
+    row.name:SetWordWrap(false)
 
     row.dungeon = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.dungeon:SetFont(STANDARD_FONT, 14, "OUTLINE")
@@ -571,51 +730,7 @@ function Interface:Create()
     f:SetBackdrop(nil)
     f:SetMovable(true)
 
-    local anchor = CreateFrame("Frame", nil, f, "BackdropTemplate")
-    anchor:SetSize(WIDTH_NORMAL - 20, ANCHOR_HEIGHT)
-    anchor:SetPoint("BOTTOM", f, "TOP", 0, 1)
-    anchor:SetBackdrop({
-        bgFile = BAR_TEXTURE,
-        edgeFile = "Interface/Buttons/WHITE8X8",
-        edgeSize = 1,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 }
-    })
-
-    local isTransparent = whisperDB.keystones.transparentMode
-    if isTransparent then
-        anchor:SetBackdropColor(0, 0, 0, 0)
-        anchor:SetBackdropBorderColor(0, 0, 0, 0)
-    else
-        anchor:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
-        anchor:SetBackdropBorderColor(0, 0, 0, 1)
-    end
-    anchor:EnableMouse(false)
-    anchor:SetMovable(true)
-    anchor:RegisterForDrag("LeftButton")
-    anchor:Hide()
-
-    local anchorText = anchor:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorText:SetPoint("CENTER", 0, 0)
-    anchorText:SetFont(STANDARD_FONT, 12)
-    anchorText:SetText("ANCHOR")
-    anchorText:SetTextColor(1, 1, 1)
-
-    anchor:SetScript("OnDragStart", function() f:StartMoving() end)
-    anchor:SetScript("OnDragStop", function()
-        f:StopMovingOrSizing()
-        local growUp = whisperDB.keystones.growUp
-        local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
-        if sw > 0 and sh > 0 then
-            local left = f:GetLeft()
-            local y = growUp and f:GetBottom() or f:GetTop()
-            whisperDB.keystones.offsetX = left - (sw / 2)
-            whisperDB.keystones.offsetY = y - (sh / 2)
-            Interface:UpdatePosition()
-        end
-    end)
-
     self.container = f
-    self.anchor = anchor
     self.rows = {}
 
     for i = 1, 5 do
@@ -650,14 +765,6 @@ function Interface:Refresh()
     local currentRowWidth = isCompact and WIDTH_COMPACT or WIDTH_NORMAL
 
     self.container:SetWidth(currentRowWidth)
-    self.anchor:SetWidth(currentRowWidth - 20)
-
-    self.anchor:ClearAllPoints()
-    if growUp then
-        self.anchor:SetPoint("BOTTOM", self.container, "BOTTOM", 0, 0)
-    else
-        self.anchor:SetPoint("TOP", self.container, "TOP", 0, 0)
-    end
 
     local list = {}
     for fullName, data in pairs(KeystoneManager.partyData) do
@@ -710,10 +817,10 @@ function Interface:Refresh()
             end
 
             if growUp then
-                local yOffset = ANCHOR_HEIGHT + ROW_SPACING + ((i - 1) * (ROW_HEIGHT + ROW_SPACING))
+                local yOffset = ROW_SPACING + ((i - 1) * (ROW_HEIGHT + ROW_SPACING))
                 row:SetPoint("BOTTOMLEFT", 0, yOffset)
             else
-                local yOffset = -(ANCHOR_HEIGHT + ROW_SPACING + ((i - 1) * (ROW_HEIGHT + ROW_SPACING)))
+                local yOffset = -(ROW_SPACING + ((i - 1) * (ROW_HEIGHT + ROW_SPACING)))
                 row:SetPoint("TOPLEFT", 0, yOffset)
             end
 
@@ -722,9 +829,8 @@ function Interface:Refresh()
             row.icon:SetTexture(data.texture)
 
             if isCompact then
-                local display = data.name
-                if len(display) > 8 then display = sub(display, 1, 8) end
-                row.name:SetText(display)
+                -- Safely clip text using our custom UTF-8 function
+                row.name:SetText(utf8sub(data.name, 8))
                 row.dungeon:SetText(data.dungeonName)
 
                 row.level:ClearAllPoints()
@@ -734,12 +840,16 @@ function Interface:Refresh()
                 row.level:SetText(data.level)
                 row.level:SetTextColor(1, 1, 1)
 
+                -- Removed the RIGHT anchor for row.name to prevent WoW engine ellipsis
                 row.name:ClearAllPoints()
                 row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, -5)
+
+                -- Keep RIGHT anchor for dungeon so it stays bounded, but increased padding to match left side
                 row.dungeon:ClearAllPoints()
                 row.dungeon:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 10, 5)
-                row.dungeon:SetPoint("RIGHT", -5, 0)
+                row.dungeon:SetPoint("RIGHT", row, "RIGHT", -10, 0)
             else
+                -- REVERTED to original Default style
                 row.name:SetText(data.name)
                 row.dungeon:SetText(data.dungeonName)
 
@@ -757,9 +867,12 @@ function Interface:Refresh()
                     row.level:SetTextColor(1, 1, 1)
                 end
 
+                -- Name Anchors
                 row.name:ClearAllPoints()
                 row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, -5)
+                row.name:SetPoint("RIGHT", row.level, "LEFT", -5, 0)
 
+                -- Dungeon Anchors
                 row.dungeon:ClearAllPoints()
                 row.dungeon:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, -20)
                 row.dungeon:SetPoint("RIGHT", row.level, "LEFT", -5, 0)
@@ -804,11 +917,13 @@ function Interface:Refresh()
 
     if numDisplayed > 0 then
         self.container:Show()
-        local totalHeight = ANCHOR_HEIGHT + (numDisplayed * (ROW_HEIGHT + ROW_SPACING))
+        local totalHeight = numDisplayed * (ROW_HEIGHT + ROW_SPACING)
         self.container:SetHeight(totalHeight)
     else
         self.container:Hide()
     end
+
+    Keystones:UpdateInterfaceTestOverlay()
 end
 
 function Interface:UpdatePosition()
@@ -886,27 +1001,19 @@ function Keystones:Init()
                 Interface:Refresh()
             elseif event == "CHALLENGE_MODE_START" then
                 isInActiveChallenge = true
+                rerollReminderShown = false
                 Interface:Refresh()
+            elseif event == "CHALLENGE_MODE_COMPLETED_REWARDS" then
+                Keystones:OnChallengeComplete()
             elseif event == "CHALLENGE_MODE_COMPLETED" then
-                isInActiveChallenge = false
-                Interface:Refresh()
-
-                -- Show the Reroll reminder right as the key completes
-                Keystones:ShowRerollReminder()
-
-                -- Give players 5 seconds to loot the Challenger's Cache, then request new keys
-                C_Timer.After(5, function()
-                    KeystoneManager:ScanOwnKey()
-                    KeystoneManager:RequestKeys()
+                C_Timer.After(0.15, function()
+                    if Keystones.enabled and not rerollReminderShown then
+                        Keystones:OnChallengeComplete()
+                    end
                 end)
-
-                -- Fire a backup request 15 seconds later in case someone was slow to loot
-                C_Timer.After(15, function()
-                    KeystoneManager:RequestKeys()
-                end)
-
             elseif event == "CHALLENGE_MODE_RESET" then
                 isInActiveChallenge = false
+                rerollReminderShown = false
                 Interface:Refresh()
             elseif event == "PLAYER_REGEN_ENABLED" then
                 if pendingUpdate then
@@ -931,6 +1038,7 @@ function Keystones:Init()
     eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     eventFrame:RegisterEvent("CHALLENGE_MODE_START")
     eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+    eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED_REWARDS")
     eventFrame:RegisterEvent("CHALLENGE_MODE_RESET")
 
     KeystoneManager:ScanOwnKey()
@@ -952,11 +1060,14 @@ function Keystones:Disable()
         Interface.container:Hide()
     end
 
-    if self.alertAnchor then
+    if self.rerollContainer then
         self.animGroup:Stop()
-        self.alertAnchor:Hide()
+        self.rerollContainer:Hide()
         self.alertFrame:Hide()
+        if self.rerollTestOverlayCtrl then self.rerollTestOverlayCtrl:Hide() end
     end
+
+    if Interface.testOverlayCtrl then Interface.testOverlayCtrl:Hide() end
 
     if whisperDB.keystones then
         whisperDB.keystones.partyCache = KeystoneManager.partyData

@@ -1,0 +1,25 @@
+# IDE files
+.idea/
+*.iml
+shelf/
+workspace.xml
+queries/
+dataSources/
+dataSources.local.xml
+httpRequests/
+modules.xml
+vcs.xml
+
+# Build files
+.pkgmeta
+create-release.bat
+*.zip
+Releases/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.tmp

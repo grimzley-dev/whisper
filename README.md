@@ -35,11 +35,13 @@ A beautiful visual notification system for party and raid loot drops.
 * Configurable X/Y positioning and display duration.
 * Choose to see all group loot or only your own.
 
-### 💀 Death Tracker
-A minimalist, scrolling feed that alerts you when group members die.
-* Displays class-colored names.
-* Built-in spam protection (won't flood your screen if the whole raid wipes at once).
-* Customize the maximum number of visible lines, growth direction, and X/Y positioning.
+### ⚔️ Combat Texts
+Stacked on-screen combat notifications inspired by AES/NUI.
+* **Enter / Exit Combat** — flash messages when you enter or leave combat.
+* **Low Durability** — persistent warning when equipped gear drops below 15% (hidden in combat).
+* **Party Deaths** — class-colored death feed; multiple deaths can show at once.
+* **Test mode** — preview all message types stacked, then drag the frame to set position.
+* Configurable death line limit and burst protection during mass wipes.
 
 ### 👼 PI Helper (Power Infusion)
 A must-have for Priests looking to perfectly time their Power Infusion.

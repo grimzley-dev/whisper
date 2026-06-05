@@ -83,8 +83,7 @@ function whisper:InitModules()
             module.enabled = whisperDB.modules[name]
         end
 
-        -- NEW: Map the database key (e.g. "Death Tracker" -> "deathTracker")
-        -- If the module specified a custom dbKey, use it. Otherwise, lowercase and strip spaces.
+        -- Map the database key (module.dbKey, or derived from module name)
         local dbKey = module.dbKey or name:gsub("%s+", ""):gsub("^%u", string.lower)
 
         if module.defaults then

@@ -22,7 +22,6 @@ local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
 
 local ROW_HEIGHT = 38
-local ANCHOR_HEIGHT = 12
 local ROW_SPACING = 1
 local WIDTH_NORMAL = 260
 local MAX_VISIBLE = 6
@@ -32,7 +31,7 @@ local BG_COLOR = {0.031, 0.031, 0.031, 0.9}
 local BORDER_COLOR = {0, 0, 0, 1}
 
 local containerFrame
-local anchorFrame
+local testOverlayCtrl
 local activeAnnouncements = {}
 local framePool = {}
 local stateByKey = {}
@@ -187,40 +186,6 @@ local function CreateInterface()
     containerFrame:SetClampedToScreen(true)
     containerFrame:SetMovable(true)
 
-    anchorFrame = CreateFrame("Frame", nil, containerFrame, "BackdropTemplate")
-    anchorFrame:SetSize(WIDTH_NORMAL - 20, ANCHOR_HEIGHT)
-    anchorFrame:SetPoint("TOP", containerFrame, "TOP", 0, 0)
-    anchorFrame:SetBackdrop({
-        bgFile = BAR_TEXTURE,
-        edgeFile = "Interface/Buttons/WHITE8X8",
-        edgeSize = 1,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 }
-    })
-    anchorFrame:SetBackdropColor(0.031, 0.031, 0.031, 0.9)
-    anchorFrame:SetBackdropBorderColor(0, 0, 0, 1)
-    anchorFrame:EnableMouse(false)
-    anchorFrame:SetMovable(true)
-    anchorFrame:RegisterForDrag("LeftButton")
-    anchorFrame:Hide()
-
-    local anchorText = anchorFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    anchorText:SetPoint("CENTER", 0, 1)
-    anchorText:SetFont(STANDARD_FONT, 12)
-    anchorText:SetText("ANCHOR")
-    anchorText:SetTextColor(1, 1, 1)
-
-    anchorFrame:SetScript("OnDragStart", function() containerFrame:StartMoving() end)
-    anchorFrame:SetScript("OnDragStop", function()
-        containerFrame:StopMovingOrSizing()
-        local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
-        if sw > 0 and sh > 0 then
-            local left = containerFrame:GetLeft()
-            local top = containerFrame:GetTop()
-            whisperDB.lootAnnouncer.offsetX = (left - (sw / 2)) / sw * 100
-            whisperDB.lootAnnouncer.offsetY = (top - (sh / 2)) / sh * 100
-        end
-    end)
-
     containerFrame:SetScript("OnUpdate", function(self, elapsed)
         local speed = 12
         for _, frame in ipairs(activeAnnouncements) do
@@ -256,8 +221,47 @@ local function AcquireFrame()
     return frame
 end
 
+function LootAnnouncer:EnsureTestOverlay()
+    if testOverlayCtrl then return end
+
+    testOverlayCtrl = whisper.TestOverlay.Create({
+        name = "WhisperLootAnnouncerOverlay",
+        label = "Loot Announcer",
+        container = function() return containerFrame end,
+        isActive = function() return LootAnnouncer.isTestMode end,
+        getContentFrames = function()
+            local frames = {}
+            for _, frame in ipairs(activeAnnouncements) do
+                if frame:IsShown() then
+                    table.insert(frames, frame)
+                end
+            end
+            return frames
+        end,
+        dragMode = "move",
+        onDragStop = function()
+            local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+            if sw > 0 and sh > 0 and containerFrame then
+                local left = containerFrame:GetLeft()
+                local top = containerFrame:GetTop()
+                whisperDB.lootAnnouncer.offsetX = (left - (sw / 2)) / sw * 100
+                whisperDB.lootAnnouncer.offsetY = (top - (sh / 2)) / sh * 100
+            end
+        end,
+    })
+end
+
+function LootAnnouncer:UpdateTestOverlay()
+    if not self.isTestMode or not containerFrame then
+        if testOverlayCtrl then testOverlayCtrl:Hide() end
+        return
+    end
+    self:EnsureTestOverlay()
+    testOverlayCtrl:Update()
+end
+
 function LootAnnouncer:UpdatePositions()
-    local yOffset = ANCHOR_HEIGHT + ROW_SPACING
+    local yOffset = ROW_SPACING
     for _, frame in ipairs(activeAnnouncements) do
         if frame:IsShown() and not frame.animOut:IsPlaying() then
             frame.targetY = -yOffset
@@ -269,6 +273,14 @@ function LootAnnouncer:UpdatePositions()
             yOffset = yOffset + ROW_HEIGHT + ROW_SPACING
         end
     end
+
+    if containerFrame then
+        local totalHeight = yOffset > ROW_SPACING and (yOffset - ROW_SPACING) or ROW_HEIGHT
+        containerFrame:SetHeight(math.max(ROW_HEIGHT, totalHeight))
+        containerFrame:SetWidth(WIDTH_NORMAL)
+    end
+
+    self:UpdateTestOverlay()
 end
 
 function LootAnnouncer:CreateAnnouncement(data)
@@ -448,7 +460,7 @@ function LootAnnouncer:ToggleTestMode()
         self.isTestMode = false
         -- Safety catch: kill the ticker if someone tries to force test mode while disabled
         if testTicker then testTicker:Cancel() testTicker = nil end
-        if anchorFrame then anchorFrame:Hide() anchorFrame:EnableMouse(false) end
+        if testOverlayCtrl then testOverlayCtrl:Hide() end
         return
     end
 
@@ -462,8 +474,7 @@ function LootAnnouncer:ToggleTestMode()
     end
 
     if self.isTestMode then
-        anchorFrame:Show()
-        anchorFrame:EnableMouse(true)
+        self:UpdateTestOverlay()
 
         testTicker = C_Timer.NewTicker(3, function()
             local itemID
@@ -512,8 +523,7 @@ function LootAnnouncer:ToggleTestMode()
             end
         end)
     else
-        anchorFrame:Hide()
-        anchorFrame:EnableMouse(false)
+        if testOverlayCtrl then testOverlayCtrl:Hide() end
 
         for i = #activeAnnouncements, 1, -1 do
             local frame = activeAnnouncements[i]

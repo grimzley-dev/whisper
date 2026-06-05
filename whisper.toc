@@ -9,15 +9,17 @@
 
 ## Core
 whisper.lua
+whisper_TestOverlay.lua
 whisper_Config.lua
 
 ## Modules
 Modules/whisper_PIHelper.lua
 Modules/whisper_Log.lua
 Modules/whisper_Mail.lua
-Modules/whisper_DeathTracker.lua
+Modules/whisper_CombatTexts.lua
 Modules/whisper_Keystones.lua
 Modules/whisper_QuestCleaner.lua
 Modules/whisper_LootAnnouncer.lua
 Modules/whisper_MythicFrames.lua
 Modules/whisper_WorldMarkers.lua
+Modules/whisper_Tags.lua
