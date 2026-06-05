@@ -48,7 +48,7 @@ echo.
 REM Pack only addon files users need — not Releases/, dev scripts, or .idea/
 git archive --format=zip --prefix=whisper/ -o "!filename!" HEAD ^
     whisper.toc whisper.lua whisper_Config.lua whisper_TestOverlay.lua ^
-    README.md Media Modules
+    Media Modules
 
 if errorlevel 1 (
     echo.
@@ -60,7 +60,7 @@ echo.
 echo Success! Created: !filename!
 echo.
 echo Included from git HEAD:
-echo   whisper.toc, core lua, Modules\, Media\, README.md
+echo   whisper.toc, core lua, Modules\, Media\
 echo.
 echo Next steps:
 echo   1. Test the zip by extracting to Interface\AddOns\

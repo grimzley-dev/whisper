@@ -21,11 +21,20 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Addon version: $VERSION"
 
+      - name: Verify tag matches whisper.toc
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Tag v$TAG does not match ## Version: $VERSION in whisper.toc"
+            exit 1
+          fi
+
       - name: Build release zip
         run: |
           git archive --format=zip --prefix=whisper/ -o "whisper-v${{ steps.version.outputs.version }}.zip" HEAD \
             whisper.toc whisper.lua whisper_Config.lua whisper_TestOverlay.lua \
-            README.md Media Modules
+            Media Modules
 
       - name: Upload GitHub Release asset
         uses: softprops/action-gh-release@v2
