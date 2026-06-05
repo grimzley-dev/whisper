@@ -1,0 +1,7 @@
+# Excluded from `git archive` (release zips)
+Releases/ export-ignore
+create-release.bat export-ignore
+.idea/ export-ignore
+.pkgmeta export-ignore
+.gitignore export-ignore
+.github/ export-ignore

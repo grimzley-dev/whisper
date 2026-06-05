@@ -5,7 +5,7 @@
 *Created for my guild, whisper on Sunstrider.*
 
 ## 🚀 Installation
-1. Download the latest `whisper.zip` from the [Releases](https://github.com/YOUR-USERNAME/YOUR-REPO/releases) page.
+1. Download the latest release from [GitHub Releases](https://github.com/grimzley-dev/whisper/releases).
 2. Extract the folder into your `World of Warcraft\_retail_\Interface\AddOns\` directory.
 3. Boot up the game and type `/shh` to open the control panel!
 

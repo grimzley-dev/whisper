@@ -1,41 +1,71 @@
 @echo off
 setlocal enabledelayedexpansion
 
-echo Creating release zip...
+echo Creating whisper release zip...
 echo.
 
-REM Create Releases folder if it doesn't exist
+REM Must run from the addon root (where whisper.toc lives)
+if not exist "whisper.toc" (
+    echo Error: whisper.toc not found. Run this script from the addon folder.
+    exit /b 1
+)
+
+where git >nul 2>&1
+if errorlevel 1 (
+    echo Error: git is not installed or not on PATH.
+    exit /b 1
+)
+
 if not exist "Releases" mkdir Releases
 
-REM Find the highest existing version number in the folder
-set "max_ver=0"
-for %%F in ("Releases\whisper-v0.*.zip") do (
-    rem Parse the version number from the filename (format: whisper-v0.X.zip)
-    rem %%~nF gets the filename without extension (whisper-v0.X)
-    rem We split by '.' to get the second token (the number X)
-    for /f "tokens=2 delims=." %%N in ("%%~nF") do (
-        if %%N GTR !max_ver! set "max_ver=%%N"
-    )
+REM Read ## Version: from whisper.toc (source of truth)
+set "version="
+for /f "usebackq tokens=1,* delims=:" %%A in (`findstr /B /C:"## Version:" whisper.toc`) do (
+    set "version=%%B"
+)
+set "version=!version: =!"
+
+if not defined version (
+    echo Error: Could not read ## Version: from whisper.toc
+    exit /b 1
 )
 
-REM Set the new version to (Highest Found + 1)
-set /a version=max_ver+1
-set "filename=Releases\whisper-v0.!version!.zip"
+set "filename=Releases\whisper-v!version!.zip"
 
-echo Creating !filename!...
-git archive --format=zip --prefix=whisper/ -o !filename! HEAD 2>nul
+if exist "!filename!" (
+    echo Error: !filename! already exists.
+    echo Bump ## Version: in whisper.toc before creating another release.
+    exit /b 1
+)
 
-if %ERRORLEVEL% EQU 0 (
+echo Version: !version!
+echo Output:  !filename!
+echo.
+echo Packing committed files from git HEAD...
+echo (Commit any new modules / changes first, or they will be missing.)
+echo.
+
+REM Pack only addon files users need — not Releases/, dev scripts, or .idea/
+git archive --format=zip --prefix=whisper/ -o "!filename!" HEAD ^
+    whisper.toc whisper.lua whisper_Config.lua whisper_TestOverlay.lua ^
+    README.md Media Modules
+
+if errorlevel 1 (
     echo.
-    echo Success! Created: !filename!
-    echo.
-    echo Remember to:
-    echo 1. Update version in whisper.toc to 0.!version!
-    echo 2. Upload this zip to GitHub releases
-) else (
-    echo.
-    echo Error creating zip file!
+    echo Error: git archive failed.
+    exit /b 1
 )
 
 echo.
+echo Success! Created: !filename!
+echo.
+echo Included from git HEAD:
+echo   whisper.toc, core lua, Modules\, Media\, README.md
+echo.
+echo Next steps:
+echo   1. Test the zip by extracting to Interface\AddOns\
+echo   2. Upload !filename! to GitHub Releases
+echo.
+
+if /I "%~1"=="nopause" exit /b 0
 pause
