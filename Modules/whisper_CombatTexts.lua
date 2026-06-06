@@ -109,6 +109,7 @@ local resetTimer = nil
 local deathVisibleUntil = 0
 local deathHideTimer = nil
 local durabilityPending = false
+local announcedDeadUnits = {}
 
 -- =========================
 -- Position / layout
@@ -460,8 +461,29 @@ end
 -- =========================
 -- Death detection (UNIT_DIED + GUID resolve)
 -- =========================
+local AnnounceDeath
+
 local function IsSecretValue(value)
     return issecretvalue and issecretvalue(value)
+end
+
+local function GUIDsEqual(a, b)
+    if not a or not b then return false end
+    if IsSecretValue(a) or IsSecretValue(b) then return false end
+    return a == b
+end
+
+local function ClearAnnouncedDeadUnits()
+    announcedDeadUnits = {}
+end
+
+local function PruneAnnouncedDeadUnits()
+    for unitID in pairs(announcedDeadUnits) do
+        local isDead = UnitIsDead(unitID)
+        if not IsSecretValue(isDead) and not isDead then
+            announcedDeadUnits[unitID] = nil
+        end
+    end
 end
 
 local function GetUnitFromGUID(guid)
@@ -472,21 +494,74 @@ local function GetUnitFromGUID(guid)
         if token and not IsSecretValue(token) then return token end
     end
 
-    if UnitGUID("player") == guid then return "player" end
+    if GUIDsEqual(UnitGUID("player"), guid) then return "player" end
 
     if IsInRaid() then
         for i = 1, 40 do
             local u = "raid" .. i
-            if UnitGUID(u) == guid then return u end
+            if GUIDsEqual(UnitGUID(u), guid) then return u end
         end
     elseif IsInGroup() then
         for i = 1, 4 do
             local u = "party" .. i
-            if UnitGUID(u) == guid then return u end
+            if GUIDsEqual(UnitGUID(u), guid) then return u end
         end
     end
 
     return nil
+end
+
+local function IsGUIDInGroup(guid)
+    if not guid or IsSecretValue(guid) then return false end
+    if GUIDsEqual(UnitGUID("player"), guid) then return true end
+
+    if IsInRaid() then
+        for i = 1, 40 do
+            if GUIDsEqual(UnitGUID("raid" .. i), guid) then return true end
+        end
+    elseif IsInGroup() then
+        for i = 1, 4 do
+            if GUIDsEqual(UnitGUID("party" .. i), guid) then return true end
+        end
+    end
+
+    return false
+end
+
+local function TryAnnounceUnitDeath(unitID)
+    if not unitID or IsSecretValue(unitID) then return end
+    if UnitIsUnit(unitID, "player") then return end
+    if announcedDeadUnits[unitID] then return end
+
+    local isDead = UnitIsDead(unitID)
+    if IsSecretValue(isDead) then isDead = true end
+    if not isDead then return end
+    if not UnitInParty(unitID) and not UnitInRaid(unitID) then return end
+
+    local name = UnitName(unitID)
+    if not name or IsSecretValue(name) then return end
+
+    local _, classFilename = UnitClass(unitID)
+    if IsSecretValue(classFilename) then classFilename = nil end
+
+    announcedDeadUnits[unitID] = true
+    AnnounceDeath(name, classFilename)
+end
+
+local function ScanPartyForNewDeaths()
+    if not IsInGroup() then return end
+
+    PruneAnnouncedDeadUnits()
+
+    if IsInRaid() then
+        for i = 1, 40 do
+            TryAnnounceUnitDeath("raid" .. i)
+        end
+    else
+        for i = 1, 4 do
+            TryAnnounceUnitDeath("party" .. i)
+        end
+    end
 end
 
 local function ResetSpamCounter()
@@ -515,7 +590,7 @@ local function ScheduleDeathFrameHide()
     end)
 end
 
-local function AnnounceDeath(name, classFilename)
+AnnounceDeath = function(name, classFilename)
     local db = whisperDB.combatTexts
     local limit = db.limit or 5
     if recentDeaths >= limit then return end
@@ -556,44 +631,20 @@ local function AnnounceDeath(name, classFilename)
 end
 
 local function ResolveDeathInfo(deadGUID)
+    if IsSecretValue(deadGUID) then
+        ScanPartyForNewDeaths()
+        return
+    end
+
     local unitID = GetUnitFromGUID(deadGUID)
     if unitID and not IsSecretValue(unitID) then
-        if UnitIsUnit(unitID, "player") then return end
-
-        local isDead = UnitIsDead(unitID)
-        if IsSecretValue(isDead) then isDead = true end
-        if not isDead then return end
-        if not UnitInParty(unitID) and not UnitInRaid(unitID) then return end
-
-        local name = UnitName(unitID)
-        if not name or IsSecretValue(name) then return end
-
-        local _, classFilename = UnitClass(unitID)
-        if IsSecretValue(classFilename) then classFilename = nil end
-
-        AnnounceDeath(name, classFilename)
+        TryAnnounceUnitDeath(unitID)
         return
     end
 
     if not IsInGroup() then return end
-
-    local inRoster = false
-    if IsInRaid() then
-        for i = 1, 40 do
-            if UnitGUID("raid" .. i) == deadGUID then
-                inRoster = true
-                break
-            end
-        end
-    else
-        for i = 1, 4 do
-            if UnitGUID("party" .. i) == deadGUID then
-                inRoster = true
-                break
-            end
-        end
-    end
-    if not inRoster or UnitGUID("player") == deadGUID then return end
+    if GUIDsEqual(UnitGUID("player"), deadGUID) then return end
+    if not IsGUIDInGroup(deadGUID) then return end
 
     local name, _, _, classFilename = GetPlayerInfoByGUID(deadGUID)
     if not name or IsSecretValue(name) then return end
@@ -812,10 +863,12 @@ function CombatTexts:Init()
                 CombatTexts:CheckDurability()
             elseif event == "GROUP_ROSTER_UPDATE" then
                 recentDeaths = 0
+                ClearAnnouncedDeadUnits()
                 if resetTimer then C_Timer.CancelTimer(resetTimer) end
                 resetTimer = nil
             elseif event == "PLAYER_ENTERING_WORLD" then
                 recentDeaths = 0
+                ClearAnnouncedDeadUnits()
                 if resetTimer then C_Timer.CancelTimer(resetTimer) end
                 resetTimer = nil
                 CombatTexts:ApplySettings()

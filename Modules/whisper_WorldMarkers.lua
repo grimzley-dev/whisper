@@ -1,19 +1,82 @@
 local addonName, whisper = ...
 local module = {}
 module.displayName = "World Markers"
+module.dbKey = "worldMarkers"
 
 module.defaults = {
     placeBind = "F5",
     clearBind = "F6",
     isStatic = false,
     staticMarker = 5,
-    order = {5, 6, 3, 2, 7, 1, 4, 8}
+    order = { 5, 6, 3, 2, 7, 1, 4, 8 },
 }
 
-local binder, placeBtn, clearBtn
+local binder, placeBtn, clearBtn, eventFrame
+local pendingUpdate = false
+local MARKER_ORDER_SIZE = 8
+
+local MODIFIER_KEYS = {
+    UNKNOWN = true,
+    LSHIFT = true, RSHIFT = true,
+    LCTRL = true, RCTRL = true,
+    LALT = true, RALT = true,
+}
+
+local function ValidateMarkerID(id)
+    return type(id) == "number" and id >= 1 and id <= 8
+end
+
+local function ValidateSettings(db)
+    if not db then return end
+
+    if not ValidateMarkerID(db.staticMarker) then
+        db.staticMarker = module.defaults.staticMarker
+    end
+
+    if type(db.order) ~= "table" then
+        db.order = {}
+    end
+
+    local defaultOrder = module.defaults.order
+    for i = 1, MARKER_ORDER_SIZE do
+        if not ValidateMarkerID(db.order[i]) then
+            db.order[i] = defaultOrder[i] or i
+        end
+    end
+end
+
+local function PurgeLegacyBindingsOnce(db)
+    if db._legacyBindingsPurged then return end
+
+    local placeKeys = { GetBindingKey("CLICK WhisperWorldMarkerPlace:LeftButton") }
+    for _, k in ipairs(placeKeys) do
+        if k then SetBinding(k, nil) end
+    end
+
+    local clearKeys = { GetBindingKey("CLICK WhisperWorldMarkerClear:LeftButton") }
+    for _, k in ipairs(clearKeys) do
+        if k then SetBinding(k, nil) end
+    end
+
+    SaveBindings(GetCurrentBindingSet())
+    db._legacyBindingsPurged = true
+end
+
+local function EnsureEventFrame()
+    if eventFrame then return end
+
+    eventFrame = CreateFrame("Frame")
+    eventFrame:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_REGEN_ENABLED" and pendingUpdate then
+            pendingUpdate = false
+            module:UpdateSettings()
+        end
+    end)
+    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
 
 function module:Init()
-    local db = whisperDB.worldMarkers
+    EnsureEventFrame()
 
     if not binder then
         binder = CreateFrame("Frame", "WhisperWorldMarkerBinder")
@@ -46,28 +109,27 @@ function module:Init()
         ]])
     end
 
-    -- FORCE PURGE BUGGED GLOBAL BINDS
-    local placeKeys = {GetBindingKey("CLICK WhisperWorldMarkerPlace:LeftButton")}
-    for _, k in ipairs(placeKeys) do SetBinding(k, nil) end
-    local clearKeys = {GetBindingKey("CLICK WhisperWorldMarkerClear:LeftButton")}
-    for _, k in ipairs(clearKeys) do SetBinding(k, nil) end
-    SaveBindings(GetCurrentBindingSet())
-
+    local db = whisperDB.worldMarkers
+    PurgeLegacyBindingsOnce(db)
+    ValidateSettings(db)
     self:UpdateSettings()
 end
 
 function module:UpdateSettings()
-    if InCombatLockdown() then return end
-
     local db = whisperDB.worldMarkers
+    ValidateSettings(db)
 
--- 1. GATEKEEPER: If the module is disabled, ensure bindings are stripped and stop running
+    if InCombatLockdown() then
+        pendingUpdate = true
+        return
+    end
+    pendingUpdate = false
+
     if not self.enabled then
         self:Disable()
         return
     end
 
-    -- 2. GATEKEEPER: Prevent errors if settings are tweaked before the UI creates the frames
     if not placeBtn or not binder then return end
 
     local body = "i = 0; order = newtable();\n"
@@ -88,7 +150,12 @@ function module:UpdateSettings()
 end
 
 function module:Disable()
-    if InCombatLockdown() then return end
+    if InCombatLockdown() then
+        pendingUpdate = true
+        return
+    end
+    pendingUpdate = false
+
     if binder then
         ClearOverrideBindings(binder)
     end
@@ -98,7 +165,9 @@ function module:ResetDefaults()
     for k, v in pairs(self.defaults) do
         if type(v) == "table" then
             whisperDB.worldMarkers[k] = {}
-            for i, val in ipairs(v) do whisperDB.worldMarkers[k][i] = val end
+            for i, val in ipairs(v) do
+                whisperDB.worldMarkers[k][i] = val
+            end
         else
             whisperDB.worldMarkers[k] = v
         end
@@ -113,10 +182,14 @@ whisper:RegisterModule("World Markers", module)
 -- =========================
 function module:BuildOptionsPanel(content, toggleBtn)
     local db = whisperDB.worldMarkers
+    ValidateSettings(db)
 
     local resetBtn = whisper.GUI.CreateStyledButton(content, "Reset", 80, 24)
     resetBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
-    resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
+    local resetFs = resetBtn:GetFontString()
+    resetFs:ClearAllPoints()
+    resetFs:SetPoint("CENTER", resetBtn, "CENTER", 0, 0)
+    resetFs:SetTextColor(0.7, 0.7, 0.7)
 
     local Y_BINDS_LBL = -80
     local Y_BINDS_BTN = -100
@@ -128,6 +201,89 @@ function module:BuildOptionsPanel(content, toggleBtn)
     local Y_ROW2_LBL = -280
     local Y_ROW2_BTN = -295
 
+    local function FormatBindDisplay(key)
+        if not key or key == "" or key == "None" then return "None" end
+        return key
+    end
+
+    local function GetModifierPrefix()
+        local mod = ""
+        if IsAltKeyDown() then mod = mod .. "ALT-" end
+        if IsControlKeyDown() then mod = mod .. "CTRL-" end
+        if IsShiftKeyDown() then mod = mod .. "SHIFT-" end
+        return mod
+    end
+
+    local keybindCatcher = CreateFrame("Frame", "WhisperWorldMarkerKeybindCatcher", UIParent)
+    keybindCatcher:SetAllPoints()
+    keybindCatcher:SetFrameStrata("DIALOG")
+    keybindCatcher:EnableKeyboard(true)
+    keybindCatcher:EnableMouse(true)
+    keybindCatcher:EnableMouseWheel(true)
+    keybindCatcher:Hide()
+
+    local activeCapture
+
+    local function FinishCapture(restore)
+        if not activeCapture then return end
+        if restore then
+            activeCapture.text:SetText(FormatBindDisplay(db[activeCapture.dbKey]))
+        end
+        activeCapture = nil
+        keybindCatcher:Hide()
+    end
+
+    local function CommitCapture(value)
+        if not activeCapture then return end
+        db[activeCapture.dbKey] = value
+        activeCapture.text:SetText(FormatBindDisplay(value))
+        if module.UpdateSettings then module:UpdateSettings() end
+        FinishCapture(false)
+    end
+
+    keybindCatcher:SetScript("OnKeyDown", function(_, key)
+        if not activeCapture then return end
+        if MODIFIER_KEYS[key] then return end
+
+        if key == "ESCAPE" then
+            FinishCapture(true)
+            return
+        end
+        if key == "DELETE" or key == "BACKSPACE" then
+            CommitCapture("None")
+            return
+        end
+
+        CommitCapture(GetModifierPrefix() .. key)
+    end)
+
+    keybindCatcher:SetScript("OnMouseDown", function(_, button)
+        if not activeCapture then return end
+
+        if button == "RightButton" then
+            FinishCapture(true)
+            return
+        end
+        if button == "LeftButton" then
+            FinishCapture(true)
+            return
+        end
+
+        local key
+        if button == "MiddleButton" then key = "BUTTON3"
+        elseif button == "Button4" then key = "BUTTON4"
+        elseif button == "Button5" then key = "BUTTON5"
+        else return end
+
+        CommitCapture(GetModifierPrefix() .. key)
+    end)
+
+    keybindCatcher:SetScript("OnMouseWheel", function(_, delta)
+        if not activeCapture then return end
+        local key = delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"
+        CommitCapture(GetModifierPrefix() .. key)
+    end)
+
     local function CreateKeybindButton(labelStr, parent, xOffset, yOffsetLabel, yOffsetBtn, dbKey)
         local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         lbl:SetPoint("TOPLEFT", xOffset, yOffsetLabel)
@@ -135,105 +291,53 @@ function module:BuildOptionsPanel(content, toggleBtn)
         lbl:SetText(labelStr)
         lbl:SetTextColor(1, 1, 1)
 
-        local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
-        btn:SetSize(180, 24)
-        btn:SetPoint("TOPLEFT", xOffset, yOffsetBtn)
-        btn:SetBackdrop(whisper.Style.Backdrop)
-        btn:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
-        btn:SetBackdropBorderColor(0, 0, 0, 1)
+        local bindBtn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+        bindBtn:SetSize(180, 24)
+        bindBtn:SetPoint("TOPLEFT", xOffset, yOffsetBtn)
+        bindBtn:SetBackdrop(whisper.Style.Backdrop)
+        bindBtn:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+        bindBtn:SetBackdropBorderColor(0, 0, 0, 1)
+        bindBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-        local text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local text = bindBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         text:SetPoint("CENTER", 0, 0)
         text:SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
-        text:SetText(db[dbKey] or "None")
+        text:SetText(FormatBindDisplay(db[dbKey]))
 
-        btn:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1) end)
-        btn:SetScript("OnLeave", function(self) self:SetBackdropBorderColor(0, 0, 0, 1) end)
+        bindBtn:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1) end)
+        bindBtn:SetScript("OnLeave", function(self) self:SetBackdropBorderColor(0, 0, 0, 1) end)
 
-        local catcher = CreateFrame("Frame", nil, UIParent)
-        catcher:SetAllPoints()
-        catcher:SetFrameStrata("DIALOG")
-        catcher:EnableKeyboard(true)
-        catcher:EnableMouse(true)
-        catcher:EnableMouseWheel(true)
-        catcher:Hide()
-
-        catcher:SetScript("OnKeyDown", function(self, key)
-            if key == "UNKNOWN" or key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL" or key == "LALT" or key == "RALT" then return end
-            if key == "ESCAPE" then
-                text:SetText(db[dbKey] or "None")
-                self:Hide()
+        bindBtn:SetScript("OnClick", function(_, button)
+            if button == "RightButton" then
+                db[dbKey] = "None"
+                text:SetText("None")
+                if module.UpdateSettings then module:UpdateSettings() end
                 return
             end
 
-            local mod = ""
-            if IsAltKeyDown() then mod = mod .. "ALT-" end
-            if IsControlKeyDown() then mod = mod .. "CTRL-" end
-            if IsShiftKeyDown() then mod = mod .. "SHIFT-" end
-
-            db[dbKey] = mod .. key
-            text:SetText(db[dbKey])
-            if module.UpdateSettings then module:UpdateSettings() end
-            self:Hide()
+            activeCapture = { dbKey = dbKey, text = text }
+            text:SetText("Press key...")
+            keybindCatcher:Show()
         end)
 
-        catcher:SetScript("OnMouseDown", function(self, button)
-            if button == "LeftButton" or button == "RightButton" then
-                text:SetText(db[dbKey] or "None")
-                self:Hide()
-                return
-            end
-            local key
-            if button == "MiddleButton" then key = "BUTTON3"
-            elseif button == "Button4" then key = "BUTTON4"
-            elseif button == "Button5" then key = "BUTTON5"
-            else return end
-
-            local mod = ""
-            if IsAltKeyDown() then mod = mod .. "ALT-" end
-            if IsControlKeyDown() then mod = mod .. "CTRL-" end
-            if IsShiftKeyDown() then mod = mod .. "SHIFT-" end
-
-            db[dbKey] = mod .. key
-            text:SetText(db[dbKey])
-            if module.UpdateSettings then module:UpdateSettings() end
-            self:Hide()
-        end)
-
-        catcher:SetScript("OnMouseWheel", function(self, delta)
-            local key = delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"
-            local mod = ""
-            if IsAltKeyDown() then mod = mod .. "ALT-" end
-            if IsControlKeyDown() then mod = mod .. "CTRL-" end
-            if IsShiftKeyDown() then mod = mod .. "SHIFT-" end
-
-            db[dbKey] = mod .. key
-            text:SetText(db[dbKey])
-            if module.UpdateSettings then module:UpdateSettings() end
-            self:Hide()
-        end)
-
-        btn:SetScript("OnClick", function()
-            text:SetText("Press key to bind...")
-            catcher:Show()
-        end)
-
-        btn.UpdateDisplay = function() text:SetText(db[dbKey] or "None") end
-        return btn
+        bindBtn.UpdateDisplay = function()
+            text:SetText(FormatBindDisplay(db[dbKey]))
+        end
+        return bindBtn
     end
 
-    local placeBtn = CreateKeybindButton("Place Markers", content, 0, Y_BINDS_LBL, Y_BINDS_BTN, "placeBind")
-    local clearBtn = CreateKeybindButton("Clear Markers", content, 210, Y_BINDS_LBL, Y_BINDS_BTN, "clearBind")
+    local placeBindBtn = CreateKeybindButton("Place Markers", content, 0, Y_BINDS_LBL, Y_BINDS_BTN, "placeBind")
+    local clearBindBtn = CreateKeybindButton("Clear Markers", content, 210, Y_BINDS_LBL, Y_BINDS_BTN, "clearBind")
 
     local MARKERS = {
-        {id = 1, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_6:14|t |cff00ccffSquare|r"},
-        {id = 2, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_4:14|t |cff00ff00Triangle|r"},
-        {id = 3, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_3:14|t |cffcc00ffDiamond|r"},
-        {id = 4, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_7:14|t |cffff0000Cross|r"},
-        {id = 5, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:14|t |cffffff00Star|r"},
-        {id = 6, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_2:14|t |cffffaa00Circle|r"},
-        {id = 7, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_5:14|t |cffccccccMoon|r"},
-        {id = 8, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:14|t |cffffffffSkull|r"}
+        { id = 1, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_6:14|t |cff00ccffSquare|r" },
+        { id = 2, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_4:14|t |cff00ff00Triangle|r" },
+        { id = 3, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_3:14|t |cffcc00ffDiamond|r" },
+        { id = 4, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_7:14|t |cffff0000Cross|r" },
+        { id = 5, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_1:14|t |cffffff00Star|r" },
+        { id = 6, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_2:14|t |cffffaa00Circle|r" },
+        { id = 7, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_5:14|t |cffccccccMoon|r" },
+        { id = 8, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:14|t |cffffffffSkull|r" },
     }
 
     local function GetMarkerName(id)
@@ -243,52 +347,71 @@ function module:BuildOptionsPanel(content, toggleBtn)
         return "Unknown"
     end
 
+    local dropdownBlocker = CreateFrame("Button", "WhisperWorldMarkerDropdownBlocker", UIParent)
+    dropdownBlocker:SetAllPoints()
+    dropdownBlocker:SetFrameStrata("TOOLTIP")
+    dropdownBlocker:Hide()
+    dropdownBlocker:SetScript("OnClick", function()
+        if dropdownBlocker.activeMenu then
+            dropdownBlocker.activeMenu:Hide()
+        end
+    end)
+
     local function CreateMarkerDropdown(parent, xOffset, yOffsetLabel, yOffsetBtn, width, height, isStaticMode, posIndex)
+        local posLabel
         if not isStaticMode then
-            local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            lbl:SetPoint("TOPLEFT", xOffset, yOffsetLabel)
-            lbl:SetFont(whisper.Style.STANDARD_FONT, 12, "OUTLINE")
-            lbl:SetText(tostring(posIndex))
-            lbl:SetTextColor(1, 1, 1)
+            posLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            posLabel:SetPoint("TOPLEFT", xOffset, yOffsetLabel)
+            posLabel:SetFont(whisper.Style.STANDARD_FONT, 12, "OUTLINE")
+            posLabel:SetText(tostring(posIndex))
+            posLabel:SetTextColor(1, 1, 1)
         end
 
         local initialVal = isStaticMode and db.staticMarker or db.order[posIndex]
 
-        local btn = whisper.GUI.CreateStyledButton(parent, GetMarkerName(initialVal), width, height)
-        btn:SetPoint("TOPLEFT", xOffset, yOffsetBtn)
-        btn:GetFontString():SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
+        local markerBtn = whisper.GUI.CreateStyledButton(parent, GetMarkerName(initialVal), width, height)
+        markerBtn:SetPoint("TOPLEFT", xOffset, yOffsetBtn)
+        markerBtn:GetFontString():SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
+        markerBtn:GetFontString():ClearAllPoints()
+        markerBtn:GetFontString():SetPoint("CENTER", 0, 0)
+        markerBtn.posLabel = posLabel
 
-        btn:GetFontString():ClearAllPoints()
-        btn:GetFontString():SetPoint("CENTER", 0, 0)
+        markerBtn:SetScript("OnClick", function(self)
+            if self.menu and self.menu:IsShown() then
+                self.menu:Hide()
+                return
+            end
 
-        btn:SetScript("OnClick", function(self)
-            if self.menu and self.menu:IsShown() then self.menu:Hide() return end
+            local menu = self.menu
+            if not menu then
+                menu = CreateFrame("Frame", nil, self, "BackdropTemplate")
+                self.menu = menu
+                menu:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -1)
+                menu:SetFrameStrata("TOOLTIP")
+                menu:SetBackdrop(whisper.Style.Backdrop)
+                menu:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+                menu:SetBackdropBorderColor(0, 0, 0, 1)
+                menu:SetSize(width, #MARKERS * height + 10)
 
-            local menu = self.menu or CreateFrame("Frame", nil, self, "BackdropTemplate")
-            self.menu = menu
-            menu:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -1)
-            menu:SetFrameStrata("TOOLTIP")
-            menu:SetBackdrop(whisper.Style.Backdrop)
-            menu:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
-            menu:SetBackdropBorderColor(0, 0, 0, 1)
-            menu:SetSize(width, #MARKERS * height + 10)
+                menu:SetScript("OnHide", function()
+                    dropdownBlocker:Hide()
+                    dropdownBlocker.activeMenu = nil
+                end)
 
-            if not menu.buttons then
                 menu.buttons = {}
                 for i, data in ipairs(MARKERS) do
                     local opt = CreateFrame("Button", nil, menu, "BackdropTemplate")
                     menu.buttons[i] = opt
                     opt:SetSize(width - 10, height - 2)
-                    opt:SetPoint("TOPLEFT", 5, -5 - ((i-1) * height))
-
+                    opt:SetPoint("TOPLEFT", 5, -5 - ((i - 1) * height))
                     opt:SetBackdrop(whisper.Style.Backdrop)
                     opt:SetBackdropColor(0, 0, 0, 0)
                     opt:SetBackdropBorderColor(0, 0, 0, 0)
 
-                    local text = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-                    text:SetPoint("CENTER", 0, 0)
-                    text:SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
-                    text:SetText(data.name)
+                    local optText = opt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+                    optText:SetPoint("CENTER", 0, 0)
+                    optText:SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
+                    optText:SetText(data.name)
 
                     opt:SetScript("OnEnter", function()
                         opt:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
@@ -305,27 +428,20 @@ function module:BuildOptionsPanel(content, toggleBtn)
                         else
                             db.order[posIndex] = data.id
                         end
-                        btn:SetText(data.name)
+                        markerBtn:SetText(data.name)
                         if module.UpdateSettings then module:UpdateSettings() end
                         menu:Hide()
                     end)
                 end
             end
 
-            if not self.clickBlocker then
-                self.clickBlocker = CreateFrame("Button", nil, UIParent)
-                self.clickBlocker:SetAllPoints()
-                self.clickBlocker:SetFrameStrata("TOOLTIP")
-                self.clickBlocker:SetFrameLevel(menu:GetFrameLevel() - 1)
-                self.clickBlocker:SetScript("OnClick", function() menu:Hide() end)
-            end
-            self.clickBlocker:Show()
-            menu:HookScript("OnHide", function() self.clickBlocker:Hide() end)
-
+            dropdownBlocker.activeMenu = menu
+            dropdownBlocker:SetFrameLevel(menu:GetFrameLevel() - 1)
+            dropdownBlocker:Show()
             menu:Show()
         end)
 
-        return btn
+        return markerBtn
     end
 
     local modeTitle = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -343,6 +459,24 @@ function module:BuildOptionsPanel(content, toggleBtn)
     local modeBtn = whisper.GUI.CreateStyledButton(content, "", 180, 24)
     modeBtn:SetPoint("TOPLEFT", 0, Y_MODE_BTN)
 
+    local staticDropdown = CreateMarkerDropdown(content, 210, Y_MODE_TITLE, Y_MODE_BTN, 180, 24, true, 0)
+
+    local orderTitle = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    orderTitle:SetPoint("TOPLEFT", 0, Y_ORDER_TITLE)
+    orderTitle:SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
+    orderTitle:SetText("Custom Marker Sequence")
+    orderTitle:SetTextColor(1, 1, 1)
+
+    local COL_X = { 0, 105, 210, 315 }
+    local dropdownBtns = {}
+
+    for i = 1, 4 do
+        dropdownBtns[i] = CreateMarkerDropdown(content, COL_X[i], Y_ROW1_LBL, Y_ROW1_BTN, 95, 24, false, i)
+    end
+    for i = 5, 8 do
+        dropdownBtns[i] = CreateMarkerDropdown(content, COL_X[i - 4], Y_ROW2_LBL, Y_ROW2_BTN, 95, 24, false, i)
+    end
+
     local function UpdateModeText()
         if db.isStatic then
             modeBtn:SetText("Static")
@@ -352,36 +486,41 @@ function module:BuildOptionsPanel(content, toggleBtn)
             modeBtn:GetFontString():SetTextColor(0.5, 0.5, 1)
         end
     end
+
+    local function UpdateModeVisibility()
+        local isStatic = db.isStatic
+        staticTitle:SetShown(isStatic)
+        staticDropdown:SetShown(isStatic)
+        orderTitle:SetShown(not isStatic)
+        for i = 1, MARKER_ORDER_SIZE do
+            dropdownBtns[i]:SetShown(not isStatic)
+            if dropdownBtns[i].posLabel then
+                dropdownBtns[i].posLabel:SetShown(not isStatic)
+            end
+        end
+    end
+
     UpdateModeText()
+    UpdateModeVisibility()
 
     modeBtn:SetScript("OnClick", function()
         db.isStatic = not db.isStatic
         UpdateModeText()
+        UpdateModeVisibility()
         if module.UpdateSettings then module:UpdateSettings() end
     end)
-
-    local staticDropdown = CreateMarkerDropdown(content, 210, Y_MODE_TITLE, Y_MODE_BTN, 180, 24, true, 0)
-
-    local orderTitle = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    orderTitle:SetPoint("TOPLEFT", 0, Y_ORDER_TITLE)
-    orderTitle:SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
-    orderTitle:SetText("Custom Marker Sequence")
-    orderTitle:SetTextColor(1, 1, 1)
-
-    local COL_X = {0, 105, 210, 315}
-    local dropdownBtns = {}
-
-    for i = 1, 4 do dropdownBtns[i] = CreateMarkerDropdown(content, COL_X[i], Y_ROW1_LBL, Y_ROW1_BTN, 95, 24, false, i) end
-    for i = 5, 8 do dropdownBtns[i] = CreateMarkerDropdown(content, COL_X[i - 4], Y_ROW2_LBL, Y_ROW2_BTN, 95, 24, false, i) end
 
     resetBtn:SetScript("OnClick", function()
         if module.ResetDefaults then
             module:ResetDefaults()
-            placeBtn:UpdateDisplay()
-            clearBtn:UpdateDisplay()
-            for i = 1, 8 do dropdownBtns[i]:SetText(GetMarkerName(db.order[i])) end
+            placeBindBtn:UpdateDisplay()
+            clearBindBtn:UpdateDisplay()
+            for i = 1, MARKER_ORDER_SIZE do
+                dropdownBtns[i]:SetText(GetMarkerName(db.order[i]))
+            end
             staticDropdown:SetText(GetMarkerName(db.staticMarker))
             UpdateModeText()
+            UpdateModeVisibility()
         end
     end)
 end

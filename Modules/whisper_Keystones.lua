@@ -57,6 +57,8 @@ local ROW_SPACING = 1
 local WIDTH_NORMAL = 210
 local WIDTH_COMPACT = 110
 local COMM_PREFIX = "WHISPER_KEYS"
+local DEFAULT_OFFSET_X_RATIO = -0.499
+local DEFAULT_OFFSET_Y_RATIO = 0.07
 
 local DUNGEON_DB = {
     -- [Midnight]
@@ -633,8 +635,8 @@ function Keystones:ResetDefaults()
     end
     -- Reset to a dynamic screen percentage natively
     local sw, sh = UIParent:GetWidth() or GetScreenWidth(), UIParent:GetHeight() or GetScreenHeight()
-    whisperDB.keystones.offsetX = -(sw * 0.499)
-    whisperDB.keystones.offsetY = (sh * 0.08)
+    whisperDB.keystones.offsetX = sw * DEFAULT_OFFSET_X_RATIO
+    whisperDB.keystones.offsetY = sh * DEFAULT_OFFSET_Y_RATIO
 
     Interface:UpdatePosition()
     Interface:Refresh()

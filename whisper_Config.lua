@@ -65,6 +65,7 @@ function whisper.GUI.CreateStyledButton(parent, text, width, height)
 
     local fs = btn:GetFontString() or btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     btn:SetFontString(fs)
+    fs:ClearAllPoints()
     fs:SetPoint("CENTER", 0, 0)
     fs:SetFont(Style.STANDARD_FONT, 14, "OUTLINE")
     fs:SetTextColor(1, 1, 1)
