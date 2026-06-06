@@ -120,6 +120,16 @@ local isInActiveChallenge = false
 local lastBagScan = 0
 local lastCooldownRefresh = 0
 local rerollReminderShown = false
+local talentReminderShown = false
+
+local REMINDER_TEXT = {
+    reroll = "|cffFFFFFFReroll Key?|r",
+    talents = "|cffFFFFFFCheck Talents|r",
+}
+
+local function IsInPartyGroup()
+    return IsInGroup() and not IsInRaid()
+end
 
 -- =========================================================================
 -- HELPER FUNCTIONS
@@ -148,14 +158,14 @@ local function utf8sub(str, maxLength)
 end
 
 -- =========================================================================
--- REROLL ALERT FRAME GENERATION
+-- REMINDER ALERTS (Reroll Key? / Check Talents)
 -- =========================================================================
 function Keystones:EnsureRerollTestOverlay()
     if self.rerollTestOverlayCtrl then return end
 
     self.rerollTestOverlayCtrl = whisper.TestOverlay.Create({
         name = "WhisperKeystoneRerollOverlay",
-        label = "Reroll Key?",
+        label = "Reminders",
         container = function() return self.rerollContainer end,
         isActive = function() return Keystones.isTestMode end,
         getContentFrames = function()
@@ -249,7 +259,7 @@ function Keystones:EnsureAlertFrameExists()
     self.text:SetFont(STANDARD_FONT, 24, "OUTLINE")
     self.text:SetShadowColor(0, 0, 0, 0)
     self.text:SetShadowOffset(0, 0)
-    self.text:SetText("|cffFFFFFFReroll Key?|r")
+    self.text:SetText(REMINDER_TEXT.reroll)
 
     self.animGroup = self.alertFrame:CreateAnimationGroup()
     local fadeIn = self.animGroup:CreateAnimation("Alpha")
@@ -278,12 +288,24 @@ function Keystones:EnsureAlertFrameExists()
     end)
 end
 
-function Keystones:ShowRerollReminder()
+function Keystones:ShowReminder(kind)
+    kind = kind or "reroll"
     if not self.enabled and not self.isTestMode then return end
-    if rerollReminderShown and not self.isTestMode then return end
+    if not REMINDER_TEXT[kind] then return end
+
+    if kind == "reroll" then
+        if rerollReminderShown and not self.isTestMode then return end
+        rerollReminderShown = true
+    elseif kind == "talents" then
+        if not self.isTestMode and not IsInPartyGroup() then return end
+        if talentReminderShown and not self.isTestMode then return end
+        talentReminderShown = true
+    end
+
     if not self.alertFrame then self:EnsureAlertFrameExists() end
 
-    rerollReminderShown = true
+    self.text:SetText(REMINDER_TEXT[kind])
+
     if self.isTestMode then
         self.rerollContainer:SetFrameStrata("DIALOG")
         self.rerollContainer:SetFrameLevel(100)
@@ -298,6 +320,14 @@ function Keystones:ShowRerollReminder()
     self.alertFrame:SetAlpha(1)
     self.alertFrame:Show()
     self.animGroup:Play()
+end
+
+function Keystones:ShowRerollReminder()
+    self:ShowReminder("reroll")
+end
+
+function Keystones:ShowTalentReminder()
+    self:ShowReminder("talents")
 end
 
 function Keystones:OnChallengeComplete()
@@ -543,8 +573,9 @@ function Keystones:ToggleTestMode()
 
     if not self.alertFrame then self:EnsureAlertFrameExists() end
 
-    -- Handle the Reroll Alert preview
+    -- Handle the Reminders preview (Reroll Key?)
     if self.isTestMode then
+        self.text:SetText(REMINDER_TEXT.reroll)
         self.rerollContainer:Show()
         self.alertFrame:SetAlpha(1)
         self.alertFrame:Show()
@@ -579,6 +610,7 @@ function Keystones:ToggleTestMode()
         self:UpdateInterfaceTestOverlay()
     else
         rerollReminderShown = false
+        talentReminderShown = false
         if self.alertFrame then
             self.animGroup:Stop()
             self.alertFrame:Hide()
@@ -946,7 +978,7 @@ function Keystones:Init()
 
     if not self.enabled then return end
 
-    -- Prepare the Reroll alert frame early
+    -- Prepare the reminder alert frame early
     self:EnsureAlertFrameExists()
 
     Interface:Create()
@@ -1003,6 +1035,12 @@ function Keystones:Init()
                 isInActiveChallenge = true
                 rerollReminderShown = false
                 Interface:Refresh()
+            elseif event == "READY_CHECK" then
+                if not Keystones.isTestMode and IsInPartyGroup() then
+                    Keystones:ShowTalentReminder()
+                end
+            elseif event == "READY_CHECK_FINISHED" then
+                talentReminderShown = false
             elseif event == "CHALLENGE_MODE_COMPLETED_REWARDS" then
                 Keystones:OnChallengeComplete()
             elseif event == "CHALLENGE_MODE_COMPLETED" then
@@ -1037,6 +1075,8 @@ function Keystones:Init()
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     eventFrame:RegisterEvent("CHALLENGE_MODE_START")
+    eventFrame:RegisterEvent("READY_CHECK")
+    eventFrame:RegisterEvent("READY_CHECK_FINISHED")
     eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
     eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED_REWARDS")
     eventFrame:RegisterEvent("CHALLENGE_MODE_RESET")
@@ -1062,6 +1102,8 @@ function Keystones:Disable()
 
     if self.rerollContainer then
         self.animGroup:Stop()
+        rerollReminderShown = false
+        talentReminderShown = false
         self.rerollContainer:Hide()
         self.alertFrame:Hide()
         if self.rerollTestOverlayCtrl then self.rerollTestOverlayCtrl:Hide() end
