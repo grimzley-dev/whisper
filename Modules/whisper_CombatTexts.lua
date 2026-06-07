@@ -160,6 +160,15 @@ local function MeasureTextWidth(text)
     return measureFS:GetStringWidth() or 0
 end
 
+local function UpdateDeathFrameWidth(frame)
+    if not frame then return end
+    local width = MIN_FRAME_WIDTH
+    if frame._widestWidth then
+        width = math_max(math_floor(frame._widestWidth + TEXT_PADDING), MIN_FRAME_WIDTH)
+    end
+    frame:SetWidth(width)
+end
+
 local function ApplyCombatTextStyles(db)
     if not db then return end
     db.EnterCombat = db.EnterCombat or {}
@@ -615,13 +624,15 @@ AnnounceDeath = function(name, classFilename)
     end
     if not frame or not frame.scroll then return end
 
+    local plainText = format("%s died", name or "Unknown")
     local msg = format("%s%s|r died", classColorStr, name or "Unknown")
-    local plainWidth = MeasureTextWidth(format("%s died", name or "Unknown"))
+    local plainWidth = MeasureTextWidth(plainText)
     if not frame._widestWidth or plainWidth > frame._widestWidth then
         frame._widestWidth = plainWidth
-        frame._widestText = format("%s died", name or "Unknown")
+        frame._widestText = plainText
     end
 
+    UpdateDeathFrameWidth(frame)
     frame.scroll:AddMessage(msg)
     frame:Show()
     activeMessages.partyDeath = true
@@ -688,12 +699,18 @@ function CombatTexts:RebuildTestDeaths()
 
     for i = 1, limit do
         local plain = format("%s died (%d)", name, i)
-        local msg = format("%s%s|r died (%d)", colorStr, name, i)
         local plainWidth = MeasureTextWidth(plain)
         if plainWidth > (deathFrame._widestWidth or 0) then
             deathFrame._widestWidth = plainWidth
             deathFrame._widestText = plain
         end
+    end
+
+    UpdateDeathFrameWidth(deathFrame)
+
+    for i = 1, limit do
+        local plain = format("%s died (%d)", name, i)
+        local msg = format("%s%s|r died (%d)", colorStr, name, i)
         deathFrame.scroll:AddMessage(msg)
     end
 
