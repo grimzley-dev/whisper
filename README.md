@@ -62,3 +62,4 @@ A collection of micro-modules built for massive quality-of-life improvements.
   * *Mail Log:* A dedicated, searchable ledger that records all incoming and outgoing mail and gold transactions.
 * **Quest Cleaner:** Automatically cleans up your objective tracker by quietly removing hidden, bugged, or backend quests from your watch list.
 * **Mythic Frames:** (Requires ElvUI) Automatically tweaks ElvUI visibility settings to force standard Raid 1 frames to show when entering a Mythic Raid.
+* **Timeline Reminders:** (Requires TimelineReminders) Reskins the TR window and anchors to match whisper's dark theme, Expressway font, and configurable text/bar reminder sizing.

@@ -18,8 +18,8 @@ local CONFIG_HEIGHT = 450
 local SIDEBAR_WIDTH = 180
 local CONTENT_PADDING = 20
 
-local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
-local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
+local STANDARD_FONT = whisper.Style.STANDARD_FONT
+local BAR_TEXTURE = whisper.Style.BAR_TEXTURE
 
 local COLOR_ADDON = "|cff999999"
 local COLOR_ENABLED = "|cff4AB044"
@@ -38,7 +38,7 @@ local moduleButtons = {}
 local currentModule = nil
 
 local Style = whisper.Style or {
-    STANDARD_FONT = "Fonts\\FRIZQT__.TTF",
+    STANDARD_FONT = whisper.Style.STANDARD_FONT,
     Backdrop = { bgFile = "Interface/Buttons/WHITE8X8", edgeFile = nil, edgeSize = 0 },
     Colors = {
         Background = {0.1, 0.1, 0.1, 0.9},
@@ -107,19 +107,27 @@ local function CreateMinimalButton(parent, text, width, height)
     return btn
 end
 
-function whisper.GUI.CreateCustomSlider(parent, label, minVal, maxVal, step, getFunc, setFunc)
+function whisper.GUI.CreateCustomSlider(parent, label, minVal, maxVal, step, getFunc, setFunc, opts)
+    opts = opts or {}
+    local fillBar = opts.fillBar
+    local compact = opts.compact
+    local frameHeight = compact and 40 or 50
+    local titleGap = compact and -2 or -8
+    local controlsHeight = compact and 24 or 30
+    local trackHeight = compact and 8 or 6
+
     local frame = CreateFrame("Frame", nil, parent)
-    frame:SetSize(420, 50)
+    frame:SetSize(420, frameHeight)
 
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("TOPLEFT", 0, 0)
-    title:SetFont(STANDARD_FONT, 14, "OUTLINE")
+    title:SetFont(STANDARD_FONT, compact and 13 or 14, "OUTLINE")
     title:SetText(label)
     title:SetTextColor(1, 1, 1)
 
     local controls = CreateFrame("Frame", nil, frame)
-    controls:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-    controls:SetSize(420, 30)
+    controls:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, titleGap)
+    controls:SetSize(420, controlsHeight)
 
     local minusBtn = CreateMinimalButton(controls, "-", 32, 32)
     minusBtn:SetPoint("LEFT", 0, 0)
@@ -138,9 +146,21 @@ function whisper.GUI.CreateCustomSlider(parent, label, minVal, maxVal, step, get
     local sliderBg = controls:CreateTexture(nil, "BACKGROUND")
     sliderBg:SetTexture(BAR_TEXTURE)
     sliderBg:SetVertexColor(0.2, 0.2, 0.2, 1)
-    sliderBg:SetHeight(6)
+    sliderBg:SetHeight(trackHeight)
     sliderBg:SetPoint("LEFT", minusBtn, "RIGHT", -4, 0)
     sliderBg:SetPoint("RIGHT", plusBtn, "LEFT", 0, 0)
+
+    local sliderFill
+    if fillBar then
+        sliderFill = controls:CreateTexture(nil, "ARTWORK", nil, -1)
+        sliderFill:SetTexture(BAR_TEXTURE)
+        sliderFill:SetVertexColor(0.55, 0.55, 0.55, 1)
+        sliderFill:SetHeight(trackHeight)
+        sliderFill:SetPoint("LEFT", sliderBg, "LEFT")
+        sliderFill:SetPoint("TOP", sliderBg, "TOP")
+        sliderFill:SetPoint("BOTTOM", sliderBg, "BOTTOM")
+        sliderFill:SetWidth(1)
+    end
 
     local slider = CreateFrame("Slider", nil, controls)
     slider:SetOrientation("HORIZONTAL")
@@ -155,17 +175,36 @@ function whisper.GUI.CreateCustomSlider(parent, label, minVal, maxVal, step, get
 
     local thumb = slider:CreateTexture(nil, "ARTWORK")
     thumb:SetTexture(BAR_TEXTURE)
-    thumb:SetVertexColor(0.6, 0.6, 0.6, 1)
-    thumb:SetSize(40, 10)
+    if fillBar then
+        thumb:SetColorTexture(0, 0, 0, 0)
+        thumb:SetSize(1, trackHeight)
+    else
+        thumb:SetVertexColor(0.6, 0.6, 0.6, 1)
+        thumb:SetSize(40, 10)
+    end
     slider:SetThumbTexture(thumb)
 
     local isInternalUpdate = false
+    local function UpdateFillWidth(val)
+        if not sliderFill then return end
+        local w = sliderBg:GetWidth()
+        if w <= 0 then return end
+        local range = maxVal - minVal
+        local pct = range > 0 and (val - minVal) / range or 0
+        sliderFill:SetWidth(math.max(1, w * pct))
+    end
+
     local function UpdateVisuals(val)
         isInternalUpdate = true
         slider:SetValue(val)
         editBox:SetText(tostring(val))
+        UpdateFillWidth(val)
         isInternalUpdate = false
     end
+
+    controls:SetScript("OnSizeChanged", function()
+        UpdateFillWidth(getFunc())
+    end)
 
     editBox:SetScript("OnEnterPressed", function(self)
         local val = tonumber(self:GetText())
@@ -189,6 +228,7 @@ function whisper.GUI.CreateCustomSlider(parent, label, minVal, maxVal, step, get
         value = math.floor(value * mult + 0.5) / mult
         setFunc(value)
         editBox:SetText(tostring(value))
+        UpdateFillWidth(value)
     end)
     minusBtn:SetScript("OnClick", function()
         local current = getFunc()

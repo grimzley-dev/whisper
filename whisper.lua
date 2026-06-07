@@ -4,11 +4,61 @@ whisperDB = whisperDB or {}
 whisperDB.modules = whisperDB.modules or {}
 
 -- =========================================================================
+-- FONT RESOLUTION
+-- =========================================================================
+local FONT_CANDIDATES = {
+    "Interface\\AddOns\\whisper\\Media\\Fonts\\Expressway.ttf",
+    "Interface\\AddOns\\whisper\\Media\\Fonts\\Expressway.TTF",
+}
+
+function whisper:ResolveFontPath()
+    if self._resolvedFontPath then
+        return self._resolvedFontPath
+    end
+
+    local function IsFontUsable(path)
+        if not path or path == "" then return false end
+        local probe = UIParent:CreateFontString(nil, "ARTWORK")
+        probe:SetFont(path, 12, "OUTLINE")
+        local ok = probe:GetFont() ~= nil
+        probe:Hide()
+        return ok
+    end
+
+    local sharedMedia = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if sharedMedia then
+        local smPath = sharedMedia:Fetch("font", "Expressway")
+        if IsFontUsable(smPath) then
+            self._resolvedFontPath = smPath
+            return smPath
+        end
+    end
+
+    for _, path in ipairs(FONT_CANDIDATES) do
+        if IsFontUsable(path) then
+            self._resolvedFontPath = path
+            return path
+        end
+    end
+
+    self._resolvedFontPath = "Fonts\\FRIZQT__.TTF"
+    return self._resolvedFontPath
+end
+
+function whisper:GetFont()
+    return self.Style.STANDARD_FONT
+end
+
+function whisper:RefreshStandardFont()
+    self.Style.STANDARD_FONT = self:ResolveFontPath()
+end
+
+-- =========================================================================
 -- MASTER STYLE TABLE
 -- =========================================================================
 whisper.Style = {
-    STANDARD_FONT = "Fonts\\FRIZQT__.TTF",
-    BAR_TEXTURE = "Interface\\AddOns\\AtrocityMedia\\StatusBars\\Atrocity",
+    STANDARD_FONT = "Interface\\AddOns\\whisper\\Media\\Fonts\\Expressway.ttf",
+    BAR_TEXTURE = "Interface\\Buttons\\WHITE8X8",
     
     Backdrop = {
         bgFile = "Interface/Buttons/WHITE8X8",
@@ -57,12 +107,16 @@ end
 -- =========================================================================
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
         if name == addonName then
+            whisper:RefreshStandardFont()
             whisper:InitModules()
         end
+    elseif event == "PLAYER_LOGIN" then
+        whisper:RefreshStandardFont()
     end
 end)
 

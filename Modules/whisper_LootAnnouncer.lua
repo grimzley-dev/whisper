@@ -18,7 +18,7 @@ whisper:RegisterModule("Loot Announcer", LootAnnouncer)
 -- =========================================================================
 -- CONSTANTS & AESTHETICS
 -- =========================================================================
-local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
+local STANDARD_FONT = whisper.Style.STANDARD_FONT
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
 
 local ROW_HEIGHT = 38

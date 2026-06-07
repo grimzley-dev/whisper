@@ -1,6 +1,6 @@
 local addonName, whisper = ...
 
-local STANDARD_FONT = whisper.Style and whisper.Style.STANDARD_FONT or "Fonts\\FRIZQT__.TTF"
+local STANDARD_FONT = whisper.Style.STANDARD_FONT
 
 whisper.TestOverlay = {}
 

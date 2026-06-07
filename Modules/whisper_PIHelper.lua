@@ -40,7 +40,7 @@ function PIHelper:EnsureAlertFrameExists()
 
     self.text = self.alertFrame:CreateFontString(nil, "OVERLAY")
     self.text:SetPoint("CENTER")
-    self.text:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+    self.text:SetFont(whisper.Style.STANDARD_FONT, 16, "OUTLINE")
     self.text:SetShadowColor(0, 0, 0, 0)
     self.text:SetShadowOffset(0, 0)
 

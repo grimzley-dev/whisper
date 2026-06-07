@@ -36,7 +36,7 @@ local unpack = unpack
 local PLAYER_NAME = UnitName("player")
 
 -- Visual Constants
-local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
+local STANDARD_FONT = whisper.Style.STANDARD_FONT
 local FONT_SIZE_GOLD = 13
 local FONT_SIZE_NAME = 13
 local FONT_SIZE_ICON = 24

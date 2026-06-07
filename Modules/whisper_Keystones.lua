@@ -50,7 +50,7 @@ local pcall = pcall
 local ORL = LibStub and LibStub:GetLibrary("LibOpenRaid-1.0", true)
 local LibKeystone = LibStub and LibStub:GetLibrary("LibKeystone", true)
 
-local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
+local STANDARD_FONT = whisper.Style.STANDARD_FONT
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
 local ROW_HEIGHT = 38
 local ROW_SPACING = 1

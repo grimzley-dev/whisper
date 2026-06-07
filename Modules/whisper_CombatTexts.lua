@@ -79,7 +79,7 @@ local IsInRaid = IsInRaid
 local IsInGroup = IsInGroup
 local issecretvalue = issecretvalue
 
-local STANDARD_FONT = "Fonts\\FRIZQT__.TTF"
+local STANDARD_FONT = whisper.Style.STANDARD_FONT
 local FONT_SIZE = 16
 local HOLD_TIME = 4.0
 local FADE_TIME = 1.0
