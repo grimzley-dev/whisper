@@ -191,15 +191,11 @@ function module:BuildOptionsPanel(content, toggleBtn)
     resetFs:SetPoint("CENTER", resetBtn, "CENTER", 0, 0)
     resetFs:SetTextColor(0.7, 0.7, 0.7)
 
-    local Y_BINDS_LBL = -80
-    local Y_BINDS_BTN = -100
-    local Y_MODE_TITLE = -145
-    local Y_MODE_BTN = -165
-    local Y_ORDER_TITLE = -205
-    local Y_ROW1_LBL = -230
-    local Y_ROW1_BTN = -245
-    local Y_ROW2_LBL = -280
-    local Y_ROW2_BTN = -295
+    local INSET = whisper.GUI.SLIDER_INSET
+    local CONTENT_Y = -whisper.GUI.SLIDER_TOP
+
+    local bindsSection = whisper.GUI.CreateSettingsSection(content, "KEYBINDS", { contentHeight = 48 })
+    bindsSection:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -16)
 
     local function FormatBindDisplay(key)
         if not key or key == "" or key == "None" then return "None" end
@@ -326,8 +322,11 @@ function module:BuildOptionsPanel(content, toggleBtn)
         return bindBtn
     end
 
-    local placeBindBtn = CreateKeybindButton("Place Markers", content, 0, Y_BINDS_LBL, Y_BINDS_BTN, "placeBind")
-    local clearBindBtn = CreateKeybindButton("Clear Markers", content, 210, Y_BINDS_LBL, Y_BINDS_BTN, "clearBind")
+    local placeBindBtn = CreateKeybindButton("Place Markers", bindsSection, INSET, CONTENT_Y, CONTENT_Y - 16, "placeBind")
+    local clearBindBtn = CreateKeybindButton("Clear Markers", bindsSection, 210, CONTENT_Y, CONTENT_Y - 16, "clearBind")
+
+    local modeSection = whisper.GUI.CreateSettingsSection(content, "PLACEMENT MODE", { contentHeight = 32 })
+    modeSection:SetPoint("TOPLEFT", bindsSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
 
     local MARKERS = {
         { id = 1, name = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_6:14|t |cff00ccffSquare|r" },
@@ -444,37 +443,26 @@ function module:BuildOptionsPanel(content, toggleBtn)
         return markerBtn
     end
 
-    local modeTitle = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    modeTitle:SetPoint("TOPLEFT", 0, Y_MODE_TITLE)
-    modeTitle:SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
-    modeTitle:SetText("Placement Mode")
-    modeTitle:SetTextColor(1, 1, 1)
+    local modeBtn = whisper.GUI.CreateStyledButton(modeSection, "", 180, 24)
+    modeBtn:SetPoint("TOPLEFT", INSET, CONTENT_Y)
 
-    local staticTitle = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    staticTitle:SetPoint("TOPLEFT", 210, Y_MODE_TITLE)
-    staticTitle:SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
-    staticTitle:SetText("Static Marker")
-    staticTitle:SetTextColor(1, 1, 1)
+    local staticDropdown = CreateMarkerDropdown(modeSection, 210, CONTENT_Y, CONTENT_Y, 180, 24, true, 0)
 
-    local modeBtn = whisper.GUI.CreateStyledButton(content, "", 180, 24)
-    modeBtn:SetPoint("TOPLEFT", 0, Y_MODE_BTN)
+    local orderSection = whisper.GUI.CreateSettingsSection(content, "MARKER SEQUENCE", { contentHeight = 80 })
+    orderSection:SetPoint("TOPLEFT", modeSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
+    local COL_X = { INSET, INSET + 105, INSET + 210, INSET + 315 }
+    local ROW1_LBL = CONTENT_Y
+    local ROW1_BTN = CONTENT_Y - 15
+    local ROW2_LBL = CONTENT_Y - 35
+    local ROW2_BTN = CONTENT_Y - 50
 
-    local staticDropdown = CreateMarkerDropdown(content, 210, Y_MODE_TITLE, Y_MODE_BTN, 180, 24, true, 0)
-
-    local orderTitle = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    orderTitle:SetPoint("TOPLEFT", 0, Y_ORDER_TITLE)
-    orderTitle:SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
-    orderTitle:SetText("Custom Marker Sequence")
-    orderTitle:SetTextColor(1, 1, 1)
-
-    local COL_X = { 0, 105, 210, 315 }
     local dropdownBtns = {}
 
     for i = 1, 4 do
-        dropdownBtns[i] = CreateMarkerDropdown(content, COL_X[i], Y_ROW1_LBL, Y_ROW1_BTN, 95, 24, false, i)
+        dropdownBtns[i] = CreateMarkerDropdown(orderSection, COL_X[i], ROW1_LBL, ROW1_BTN, 95, 24, false, i)
     end
     for i = 5, 8 do
-        dropdownBtns[i] = CreateMarkerDropdown(content, COL_X[i - 4], Y_ROW2_LBL, Y_ROW2_BTN, 95, 24, false, i)
+        dropdownBtns[i] = CreateMarkerDropdown(orderSection, COL_X[i - 4], ROW2_LBL, ROW2_BTN, 95, 24, false, i)
     end
 
     local function UpdateModeText()
@@ -489,9 +477,8 @@ function module:BuildOptionsPanel(content, toggleBtn)
 
     local function UpdateModeVisibility()
         local isStatic = db.isStatic
-        staticTitle:SetShown(isStatic)
         staticDropdown:SetShown(isStatic)
-        orderTitle:SetShown(not isStatic)
+        orderSection:SetShown(not isStatic)
         for i = 1, MARKER_ORDER_SIZE do
             dropdownBtns[i]:SetShown(not isStatic)
             if dropdownBtns[i].posLabel then

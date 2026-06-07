@@ -1156,52 +1156,7 @@ function TRSkin:ResetDefaults()
     self:UpdateSettings()
 end
 
-local function CreateSectionLabel(parent, text)
-    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetFont(whisper.Style.STANDARD_FONT, 11, "OUTLINE")
-    label:SetTextColor(0.5, 0.5, 0.5)
-    label:SetText(text)
-    return label
-end
-
-local function CreateSettingsSection(parent, titleText, width, height)
-    local section = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    section:SetSize(width, height)
-    section:SetClipsChildren(true)
-    section:SetBackdrop({
-        bgFile = "Interface/Buttons/WHITE8X8",
-        edgeFile = "Interface/Buttons/WHITE8X8",
-        edgeSize = 1,
-    })
-    section:SetBackdropColor(8 / 255, 8 / 255, 8 / 255, 1)
-    section:SetBackdropBorderColor(0, 0, 0, 1)
-
-    local header = CreateSectionLabel(section, titleText)
-    header:SetPoint("TOPLEFT", section, "TOPLEFT", 10, -8)
-
-    return section
-end
-
-local SLIDER_OPTS = {fillBar = true, compact = true}
-local SLIDER_HEIGHT = 40
-local SLIDER_CONTROLS_HEIGHT = 24
-
-local function InsetSlider(slider, width)
-    slider:SetSize(width, SLIDER_HEIGHT)
-    for i = 1, select("#", slider:GetChildren()) do
-        local child = select(i, slider:GetChildren())
-        if child:GetObjectType() == "Frame" then
-            child:SetSize(width, SLIDER_CONTROLS_HEIGHT)
-            break
-        end
-    end
-end
-
 function TRSkin:BuildOptionsPanel(content, toggleBtn)
-    local PANEL_WIDTH = 418
-    local SLIDER_INSET = 12
-    local SLIDER_WIDTH = PANEL_WIDTH - SLIDER_INSET * 2
-
     local applyBtn = whisper.GUI.CreateStyledButton(content, "Re-apply", 90, 24)
     applyBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
     applyBtn:SetScript("OnClick", function()
@@ -1215,7 +1170,7 @@ function TRSkin:BuildOptionsPanel(content, toggleBtn)
     if not self:IsTRLoaded() then
         local warn = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         warn:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -16)
-        warn:SetWidth(PANEL_WIDTH)
+        warn:SetWidth(whisper.GUI.PANEL_WIDTH)
         warn:SetFont(whisper.Style.STANDARD_FONT, 12, "OUTLINE")
         warn:SetTextColor(1, 0.4, 0.4)
         warn:SetText("TimelineReminders is not installed or not loaded.")
@@ -1228,7 +1183,7 @@ function TRSkin:BuildOptionsPanel(content, toggleBtn)
 
     local note = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     note:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -12)
-    note:SetWidth(PANEL_WIDTH)
+    note:SetWidth(whisper.GUI.PANEL_WIDTH)
     note:SetJustifyH("LEFT")
     note:SetFont(whisper.Style.STANDARD_FONT, 11, "OUTLINE")
     note:SetTextColor(0.55, 0.55, 0.55)
@@ -1236,58 +1191,48 @@ function TRSkin:BuildOptionsPanel(content, toggleBtn)
 
     local hint = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     hint:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -4)
-    hint:SetWidth(PANEL_WIDTH)
+    hint:SetWidth(whisper.GUI.PANEL_WIDTH)
     hint:SetJustifyH("LEFT")
     hint:SetFont(whisper.Style.STANDARD_FONT, 11, "OUTLINE")
     hint:SetTextColor(0.45, 0.45, 0.45)
     hint:SetText("Bar text 0 = auto; cooldown matches bar text.")
 
-    local SLIDER_TOP = 30
-
-    local textSection = CreateSettingsSection(content, "TEXT REMINDERS", PANEL_WIDTH, SLIDER_TOP + SLIDER_HEIGHT)
+    local textSection = whisper.GUI.CreateSettingsSection(content, "TEXT REMINDERS", { sliders = 1 })
     textSection:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -10)
 
-    local textSizeSlider = whisper.GUI.CreateCustomSlider(textSection, "Size", 12, 72, 1, function()
+    local textSizeSlider = whisper.GUI.AddSectionSlider(textSection, nil, "Size", 12, 72, 1, function()
         return db.anchors.TEXT.size or 32
     end, function(value)
         db.anchors.TEXT.size = value
         TRSkin:UpdateSettings()
-    end, SLIDER_OPTS)
-    textSizeSlider:SetPoint("TOPLEFT", textSection, "TOPLEFT", SLIDER_INSET, -SLIDER_TOP)
-    InsetSlider(textSizeSlider, SLIDER_WIDTH)
+    end)
     sliderRefs.textSizeSlider = textSizeSlider
 
-    local barSection = CreateSettingsSection(content, "BAR REMINDERS", PANEL_WIDTH, SLIDER_TOP + SLIDER_HEIGHT * 3)
-    barSection:SetPoint("TOPLEFT", textSection, "BOTTOMLEFT", 0, -8)
+    local barSection = whisper.GUI.CreateSettingsSection(content, "BAR REMINDERS", { sliders = 3 })
+    barSection:SetPoint("TOPLEFT", textSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
 
-    local barWidthSlider = whisper.GUI.CreateCustomSlider(barSection, "Width", 120, 400, 5, function()
+    local barWidthSlider = whisper.GUI.AddSectionSlider(barSection, nil, "Width", 120, 400, 5, function()
         return db.anchors.BAR.width or 240
     end, function(value)
         db.anchors.BAR.width = value
         TRSkin:UpdateSettings()
-    end, SLIDER_OPTS)
-    barWidthSlider:SetPoint("TOPLEFT", barSection, "TOPLEFT", SLIDER_INSET, -SLIDER_TOP)
-    InsetSlider(barWidthSlider, SLIDER_WIDTH)
+    end)
     sliderRefs.barWidthSlider = barWidthSlider
 
-    local barHeightSlider = whisper.GUI.CreateCustomSlider(barSection, "Height", 20, 60, 1, function()
+    local barHeightSlider = whisper.GUI.AddSectionSlider(barSection, barWidthSlider, "Height", 20, 60, 1, function()
         return db.anchors.BAR.height or 40
     end, function(value)
         db.anchors.BAR.height = value
         TRSkin:UpdateSettings()
-    end, SLIDER_OPTS)
-    barHeightSlider:SetPoint("TOPLEFT", barWidthSlider, "BOTTOMLEFT", 0, 0)
-    InsetSlider(barHeightSlider, SLIDER_WIDTH)
+    end)
     sliderRefs.barHeightSlider = barHeightSlider
 
-    local barFontSlider = whisper.GUI.CreateCustomSlider(barSection, "Text Size (0 = auto)", 0, 40, 1, function()
+    local barFontSlider = whisper.GUI.AddSectionSlider(barSection, barHeightSlider, "Text Size (0 = auto)", 0, 40, 1, function()
         return db.anchors.BAR.fontSize or 0
     end, function(value)
         db.anchors.BAR.fontSize = value
         TRSkin:UpdateSettings()
-    end, SLIDER_OPTS)
-    barFontSlider:SetPoint("TOPLEFT", barHeightSlider, "BOTTOMLEFT", 0, 0)
-    InsetSlider(barFontSlider, SLIDER_WIDTH)
+    end)
     sliderRefs.barFontSlider = barFontSlider
 
     resetBtn:SetScript("OnClick", function()

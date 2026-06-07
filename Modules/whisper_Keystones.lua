@@ -1140,7 +1140,6 @@ end
 -- Config Panel UI
 -- =========================
 function Keystones:BuildOptionsPanel(content, toggleBtn)
-    local yStart = -80
     local db = whisperDB.keystones
 
     local testBtn = whisper.GUI.CreateStyledButton(content, "Test", 80, 24)
@@ -1163,20 +1162,24 @@ function Keystones:BuildOptionsPanel(content, toggleBtn)
     resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
     resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
 
-    local xSlider = whisper.GUI.CreateCustomSlider(content, "X Offset", -50, 50, 1,
+    local posSection = whisper.GUI.CreateSettingsSection(content, "POSITION", { sliders = 2 })
+    posSection:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -16)
+
+    local xSlider = whisper.GUI.AddSectionSlider(posSection, nil, "X Offset", -50, 50, 1,
         function() local sw = UIParent:GetWidth() if sw == 0 then return 0 end return math.floor((db.offsetX / sw) * 100 + 0.5) end,
         function(val) local sw = UIParent:GetWidth() db.offsetX = (val / 100) * sw if self.UpdateSettings then self:UpdateSettings() end end
     )
-    xSlider:SetPoint("TOPLEFT", 0, yStart)
 
-    local ySlider = whisper.GUI.CreateCustomSlider(content, "Y Offset", -50, 50, 1,
+    local ySlider = whisper.GUI.AddSectionSlider(posSection, xSlider, "Y Offset", -50, 50, 1,
         function() local sh = UIParent:GetHeight() if sh == 0 then return 0 end return math.floor((db.offsetY / sh) * 100 + 0.5) end,
         function(val) local sh = UIParent:GetHeight() db.offsetY = (val / 100) * sh if self.UpdateSettings then self:UpdateSettings() end end
     )
-    ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
 
-    local compactBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
-    compactBtn:SetPoint("TOPLEFT", 0, yStart - 120)
+    local displaySection = whisper.GUI.CreateSettingsSection(content, "DISPLAY", { contentHeight = 32 })
+    displaySection:SetPoint("TOPLEFT", posSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
+
+    local compactBtn = whisper.GUI.CreateStyledButton(displaySection, "", 140, 24)
+    compactBtn:SetPoint("TOPLEFT", displaySection, "TOPLEFT", whisper.GUI.SLIDER_INSET, -whisper.GUI.SLIDER_TOP)
 
     local function UpdateCompactText()
         if db.transparentMode then
@@ -1200,7 +1203,7 @@ function Keystones:BuildOptionsPanel(content, toggleBtn)
         if self.UpdateSettings then self:UpdateSettings() end
     end)
 
-    local growBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
+    local growBtn = whisper.GUI.CreateStyledButton(displaySection, "", 140, 24)
     growBtn:SetPoint("TOPLEFT", compactBtn, "TOPRIGHT", 10, 0)
 
     local function UpdateGrowText()

@@ -2,7 +2,7 @@
 ## Title: whisper
 ## Notes: whisper Guild Utility Addon
 ## Author: Grimzley
-## Version: 1.1.3
+## Version: 1.1.4
 ## SavedVariables: whisperDB
 ## IconTexture: Interface\AddOns\whisper\Media\whisperLogo
 ## Category: whisper

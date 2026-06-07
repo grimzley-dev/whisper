@@ -538,7 +538,6 @@ end
 -- Config Panel UI
 -- =========================
 function LootAnnouncer:BuildOptionsPanel(content, toggleBtn)
-    local yStart = -80
     local db = whisperDB.lootAnnouncer
 
     local testBtn = whisper.GUI.CreateStyledButton(content, "Test", 80, 24)
@@ -561,20 +560,24 @@ function LootAnnouncer:BuildOptionsPanel(content, toggleBtn)
     resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
     resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
 
-    local xSlider = whisper.GUI.CreateCustomSlider(content, "X Offset", -50, 50, 1,
+    local posSection = whisper.GUI.CreateSettingsSection(content, "POSITION", { sliders = 2 })
+    posSection:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -16)
+
+    local xSlider = whisper.GUI.AddSectionSlider(posSection, nil, "X Offset", -50, 50, 1,
         function() return math.floor(db.offsetX + 0.5) end,
         function(val) db.offsetX = val if self.UpdateSettings then self:UpdateSettings() end end
     )
-    xSlider:SetPoint("TOPLEFT", 0, yStart)
 
-    local ySlider = whisper.GUI.CreateCustomSlider(content, "Y Offset", -50, 50, 1,
+    local ySlider = whisper.GUI.AddSectionSlider(posSection, xSlider, "Y Offset", -50, 50, 1,
         function() return math.floor(db.offsetY + 0.5) end,
         function(val) db.offsetY = val if self.UpdateSettings then self:UpdateSettings() end end
     )
-    ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
 
-    local soundBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
-    soundBtn:SetPoint("TOPLEFT", 0, yStart - 120)
+    local optionsSection = whisper.GUI.CreateSettingsSection(content, "OPTIONS", { contentHeight = 32 })
+    optionsSection:SetPoint("TOPLEFT", posSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
+
+    local soundBtn = whisper.GUI.CreateStyledButton(optionsSection, "", 140, 24)
+    soundBtn:SetPoint("TOPLEFT", optionsSection, "TOPLEFT", whisper.GUI.SLIDER_INSET, -whisper.GUI.SLIDER_TOP)
 
     local function UpdateSoundText()
         if db.soundEnabled then

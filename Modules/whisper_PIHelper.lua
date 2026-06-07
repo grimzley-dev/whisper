@@ -367,8 +367,11 @@ function PIHelper:BuildOptionsPanel(content, toggleBtn)
     end)
     self.testButton = testBtn
 
-    local soundBtn = whisper.GUI.CreateStyledButton(content, "", 140, 24)
-    soundBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
+    local optionsSection = whisper.GUI.CreateSettingsSection(content, "OPTIONS", { contentHeight = 32 })
+    optionsSection:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -16)
+
+    local soundBtn = whisper.GUI.CreateStyledButton(optionsSection, "", 140, 24)
+    soundBtn:SetPoint("TOPLEFT", optionsSection, "TOPLEFT", whisper.GUI.SLIDER_INSET, -whisper.GUI.SLIDER_TOP)
     local function UpdateSoundBtn()
         local isSoundOn = db.soundEnabled ~= false
         soundBtn:SetText(isSoundOn and "Sound Alert: ON" or "Sound Alert: OFF")
@@ -385,10 +388,13 @@ function PIHelper:BuildOptionsPanel(content, toggleBtn)
         UpdateSoundBtn()
     end)
 
-    local dd = whisper.GUI.CreateCustomDropdown(content, 180, 24,
+    local targetSection = whisper.GUI.CreateSettingsSection(content, "PI TARGET", { contentHeight = 28 })
+    targetSection:SetPoint("TOPLEFT", optionsSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
+
+    local dd = whisper.GUI.CreateCustomDropdown(targetSection, 180, 24,
         function() return whisperDB.piTarget or "None" end,
         function(val) whisperDB.piTarget = val end,
         GetGroupMembers
     )
-    dd:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -20)
+    dd:SetPoint("TOPLEFT", targetSection, "TOPLEFT", whisper.GUI.SLIDER_INSET, -whisper.GUI.SLIDER_TOP)
 end

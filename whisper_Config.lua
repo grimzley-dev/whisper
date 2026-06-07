@@ -107,10 +107,76 @@ local function CreateMinimalButton(parent, text, width, height)
     return btn
 end
 
+whisper.GUI.PANEL_WIDTH = 418
+whisper.GUI.SLIDER_INSET = 12
+whisper.GUI.SLIDER_TOP = 30
+whisper.GUI.SLIDER_HEIGHT = 40
+whisper.GUI.SLIDER_CONTROLS_HEIGHT = 24
+whisper.GUI.SECTION_GAP = 8
+
+function whisper.GUI.GetSliderWidth(panelWidth)
+    return (panelWidth or whisper.GUI.PANEL_WIDTH) - whisper.GUI.SLIDER_INSET * 2
+end
+
+function whisper.GUI.GetSectionHeight(sliderCount, contentHeight)
+    if contentHeight then
+        return whisper.GUI.SLIDER_TOP + contentHeight
+    end
+    return whisper.GUI.SLIDER_TOP + whisper.GUI.SLIDER_HEIGHT * (sliderCount or 0)
+end
+
+function whisper.GUI.CreateSettingsSection(parent, titleText, options)
+    options = options or {}
+    local width = options.width or whisper.GUI.PANEL_WIDTH
+    local height = options.height or whisper.GUI.GetSectionHeight(options.sliders, options.contentHeight)
+
+    local section = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    section:SetSize(width, height)
+    section:SetClipsChildren(true)
+    section:SetBackdrop({
+        bgFile = "Interface/Buttons/WHITE8X8",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        edgeSize = 1,
+    })
+    section:SetBackdropColor(8 / 255, 8 / 255, 8 / 255, 1)
+    section:SetBackdropBorderColor(0, 0, 0, 1)
+
+    local header = section:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    header:SetPoint("TOPLEFT", section, "TOPLEFT", 10, -8)
+    header:SetFont(STANDARD_FONT, 11, "OUTLINE")
+    header:SetTextColor(0.5, 0.5, 0.5)
+    header:SetText(titleText)
+
+    return section
+end
+
+function whisper.GUI.InsetSlider(slider, width)
+    width = width or whisper.GUI.GetSliderWidth()
+    slider:SetSize(width, whisper.GUI.SLIDER_HEIGHT)
+    for i = 1, select("#", slider:GetChildren()) do
+        local child = select(i, slider:GetChildren())
+        if child:GetObjectType() == "Frame" then
+            child:SetSize(width, whisper.GUI.SLIDER_CONTROLS_HEIGHT)
+            break
+        end
+    end
+end
+
+function whisper.GUI.AddSectionSlider(section, prevSlider, label, minVal, maxVal, step, getFunc, setFunc, opts)
+    local slider = whisper.GUI.CreateCustomSlider(section, label, minVal, maxVal, step, getFunc, setFunc, opts)
+    if prevSlider then
+        slider:SetPoint("TOPLEFT", prevSlider, "BOTTOMLEFT", 0, 0)
+    else
+        slider:SetPoint("TOPLEFT", section, "TOPLEFT", whisper.GUI.SLIDER_INSET, -whisper.GUI.SLIDER_TOP)
+    end
+    whisper.GUI.InsetSlider(slider)
+    return slider
+end
+
 function whisper.GUI.CreateCustomSlider(parent, label, minVal, maxVal, step, getFunc, setFunc, opts)
     opts = opts or {}
-    local fillBar = opts.fillBar
-    local compact = opts.compact
+    local fillBar = opts.fillBar ~= false
+    local compact = opts.compact ~= false
     local frameHeight = compact and 40 or 50
     local titleGap = compact and -2 or -8
     local controlsHeight = compact and 24 or 30

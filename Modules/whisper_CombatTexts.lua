@@ -922,7 +922,6 @@ end
 -- =========================
 function CombatTexts:BuildOptionsPanel(content, toggleBtn)
     local db = whisperDB.combatTexts
-    local yStart = -80
 
     local testBtn = whisper.GUI.CreateStyledButton(content, "Test", 80, 24)
     testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
@@ -948,7 +947,11 @@ function CombatTexts:BuildOptionsPanel(content, toggleBtn)
     local sliderRefs = {}
 
     EnsurePositionDefaults(db)
-    local xSlider = whisper.GUI.CreateCustomSlider(content, "X Offset", -50, 50, 1,
+
+    local posSection = whisper.GUI.CreateSettingsSection(content, "POSITION", { sliders = 2 })
+    posSection:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -16)
+
+    local xSlider = whisper.GUI.AddSectionSlider(posSection, nil, "X Offset", -50, 50, 1,
         function()
             local sw = UIParent:GetWidth()
             if not sw or sw == 0 then return 0 end
@@ -961,10 +964,9 @@ function CombatTexts:BuildOptionsPanel(content, toggleBtn)
             if self.ApplySettings then self:ApplySettings() end
         end
     )
-    xSlider:SetPoint("TOPLEFT", 0, yStart)
     sliderRefs.xSlider = xSlider
 
-    local ySlider = whisper.GUI.CreateCustomSlider(content, "Y Offset", -50, 50, 1,
+    local ySlider = whisper.GUI.AddSectionSlider(posSection, xSlider, "Y Offset", -50, 50, 1,
         function()
             local sh = UIParent:GetHeight()
             if not sh or sh == 0 then return 0 end
@@ -977,10 +979,12 @@ function CombatTexts:BuildOptionsPanel(content, toggleBtn)
             if self.ApplySettings then self:ApplySettings() end
         end
     )
-    ySlider:SetPoint("TOPLEFT", 0, yStart - 60)
     sliderRefs.ySlider = ySlider
 
-    local limitSlider = whisper.GUI.CreateCustomSlider(content, "Death Limit", 1, 20, 1,
+    local displaySection = whisper.GUI.CreateSettingsSection(content, "DISPLAY", { sliders = 1 })
+    displaySection:SetPoint("TOPLEFT", posSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
+
+    local limitSlider = whisper.GUI.AddSectionSlider(displaySection, nil, "Death Limit", 1, 20, 1,
         function() return db.limit end,
         function(val)
             db.limit = val
@@ -995,7 +999,6 @@ function CombatTexts:BuildOptionsPanel(content, toggleBtn)
             end
         end
     )
-    limitSlider:SetPoint("TOPLEFT", 0, yStart - 120)
     sliderRefs.limitSlider = limitSlider
 
     resetBtn:SetScript("OnClick", function()
