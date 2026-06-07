@@ -383,9 +383,8 @@ function module:BuildOptionsPanel(content, toggleBtn)
 
             local menu = self.menu
             if not menu then
-                menu = CreateFrame("Frame", nil, self, "BackdropTemplate")
+                menu = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
                 self.menu = menu
-                menu:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -1)
                 menu:SetFrameStrata("TOOLTIP")
                 menu:SetBackdrop(whisper.Style.Backdrop)
                 menu:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
@@ -433,6 +432,9 @@ function module:BuildOptionsPanel(content, toggleBtn)
                     end)
                 end
             end
+
+            menu:ClearAllPoints()
+            menu:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -1)
 
             dropdownBlocker.activeMenu = menu
             dropdownBlocker:SetFrameLevel(menu:GetFrameLevel() - 1)

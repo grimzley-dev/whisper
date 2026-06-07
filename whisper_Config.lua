@@ -378,8 +378,9 @@ function whisper.GUI.CreateCustomDropdown(parent, width, height, getFunc, setFun
     btn:SetScript("OnClick", function(self)
         if self.menu and self.menu:IsShown() then self.menu:Hide() return end
 
-        local menu = self.menu or CreateFrame("Frame", nil, self, "BackdropTemplate")
+        local menu = self.menu or CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
         self.menu = menu
+        menu:ClearAllPoints()
         menu:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -1)
         menu:SetFrameStrata("TOOLTIP")
         menu:SetBackdrop(Style.Backdrop)
