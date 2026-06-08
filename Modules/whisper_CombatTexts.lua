@@ -219,6 +219,17 @@ local function GetDeathLimit()
     return whisperDB.combatTexts and whisperDB.combatTexts.limit or 5
 end
 
+local function GetSortedDeathEntries(frame)
+    local sorted = {}
+    for _, entry in ipairs(frame.entries) do
+        table.insert(sorted, entry)
+    end
+    table.sort(sorted, function(a, b)
+        return (a.slotIndex or 0) < (b.slotIndex or 0)
+    end)
+    return sorted
+end
+
 local EnsureDeathAnimator
 
 local function ForceDeathEntryOut(frame, entry, fast)
@@ -264,17 +275,6 @@ end
 
 local function GetSlotY(slotIndex)
     return -((slotIndex - 1) * GetDeathPitch())
-end
-
-local function GetSortedDeathEntries(frame)
-    local sorted = {}
-    for _, entry in ipairs(frame.entries) do
-        table.insert(sorted, entry)
-    end
-    table.sort(sorted, function(a, b)
-        return (a.slotIndex or 0) < (b.slotIndex or 0)
-    end)
-    return sorted
 end
 
 local function CompactDeathSlots(frame)

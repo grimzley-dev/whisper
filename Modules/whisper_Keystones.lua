@@ -28,6 +28,8 @@ local C_Container = C_Container
 local C_Item = C_Item
 local UnitName = UnitName
 local UnitClass = UnitClass
+local UnitExists = UnitExists
+local UnitIsUnit = UnitIsUnit
 local UnitInParty = UnitInParty
 local UnitFactionGroup = UnitFactionGroup
 local GetRealmName = GetRealmName
@@ -443,6 +445,54 @@ local function GetGroupChannel()
     return nil
 end
 
+local function GetMyFullName()
+    return UnitName("player") .. "-" .. GetRealmName()
+end
+
+local function BuildGroupMemberSet()
+    local members = {}
+    local myRealm = GetRealmName()
+    local myFullName = GetMyFullName()
+    members[myFullName] = true
+
+    if not IsInGroup() then
+        return members
+    end
+
+    local function AddUnit(unit)
+        if UnitExists(unit) and not UnitIsUnit(unit, "player") then
+            local n, r = UnitName(unit)
+            if n then
+                r = (r and r ~= "") and r or myRealm
+                members[n .. "-" .. r] = true
+            end
+        end
+    end
+
+    if IsInRaid() then
+        for i = 1, 40 do
+            AddUnit("raid" .. i)
+        end
+    else
+        for i = 1, 4 do
+            AddUnit("party" .. i)
+        end
+    end
+
+    return members
+end
+
+function KeystoneManager:IsGroupMember(fullName)
+    if not fullName or not IsInGroup() then return false end
+    local members = BuildGroupMemberSet()
+    if members[fullName] then return true end
+    local short = Ambiguate(fullName, "none")
+    for name in pairs(members) do
+        if Ambiguate(name, "none") == short then return true end
+    end
+    return false
+end
+
 local function NormalizeSenderName(sender)
     if not sender or sender == "" then return nil end
     if type(sender) ~= "string" then return nil end
@@ -512,7 +562,7 @@ end
 
 local function OnLibKeystoneUpdate(keyLevel, keyMap, playerRating, playerName, channel)
     if not Keystones.enabled then return end
-    if channel ~= "PARTY" and channel ~= "GUILD" then return end
+    if channel ~= "PARTY" or not IsInGroup() then return end
     if not keyMap or keyMap <= 0 or not keyLevel or keyLevel <= 0 then return end
     if not playerName or playerName == "" then return end
     KeystoneManager:UpdateEntry(playerName, keyMap, keyLevel)
@@ -553,6 +603,15 @@ function KeystoneManager:UpdateEntry(sender, mapID, level)
     local fullName = NormalizeSenderName(sender)
     if not fullName then return end
 
+    local myFullName = GetMyFullName()
+    local isMe = (fullName == myFullName or Ambiguate(fullName, "none") == UnitName("player"))
+
+    if not IsInGroup() then
+        if not isMe then return end
+    elseif not isMe and not self:IsGroupMember(fullName) then
+        return
+    end
+
     local shortName = fullName:match("(.+)-") or fullName
 
     -- Run the nickname waterfall check!
@@ -562,8 +621,6 @@ function KeystoneManager:UpdateEntry(sender, mapID, level)
     if not classFilename then _, classFilename = UnitClass(shortName) end
 
     local classColor = C_ClassColor.GetClassColor(classFilename or "PRIEST")
-    local myFullName = UnitName("player") .. "-" .. GetRealmName()
-    local isMe = (fullName == myFullName)
 
     self.partyData[fullName] = {
         mapID = tonumber(mapID),
@@ -576,11 +633,14 @@ function KeystoneManager:UpdateEntry(sender, mapID, level)
 end
 
 function KeystoneManager:SyncFromOpenRaid()
-    if not ORL or not ORL.GetAllKeystonesInfo then return end
+    if not IsInGroup() or not ORL or not ORL.GetAllKeystonesInfo then return end
     local all = ORL.GetAllKeystonesInfo()
     if not all then return end
     for unitName, info in pairs(all) do
-        ProcessKeystoneInfo(unitName, info)
+        local fullName = NormalizeSenderName(unitName) or unitName
+        if self:IsGroupMember(fullName) or Ambiguate(fullName, "none") == UnitName("player") then
+            ProcessKeystoneInfo(unitName, info)
+        end
     end
 end
 
@@ -648,21 +708,16 @@ end
 function KeystoneManager:CleanParty()
     if Keystones.isTestMode then return end
 
-    local validMembers = {}
-    local myFullName = UnitName("player") .. "-" .. GetRealmName()
-    validMembers[myFullName] = true
-
-    for i = 1, 4 do
-        local unitID = "party" .. i
-        if UnitExists(unitID) then
-            local name, realm = UnitName(unitID)
-            if not realm or realm == "" then realm = GetRealmName() end
-            validMembers[name .. "-" .. realm] = true
-        end
-    end
+    local myFullName = GetMyFullName()
+    local validMembers = BuildGroupMemberSet()
 
     for fullName, data in pairs(self.partyData) do
-        if not validMembers[fullName]
+        local isMe = fullName == myFullName or Ambiguate(fullName, "none") == UnitName("player")
+        local inScope = isMe
+        if IsInGroup() then
+            inScope = isMe or validMembers[fullName] or self:IsGroupMember(fullName)
+        end
+        if not inScope
             or not data.level or data.level == 0
             or not data.mapID or data.mapID == 0 then
             self.partyData[fullName] = nil
@@ -688,8 +743,11 @@ function Comms:OnMessage(_, prefix, msg, _, sender)
         return
     end
     local mapID, level = msg:match("WHISPER:KEY:(%d+):(%d+)")
-    if mapID and level then
-        KeystoneManager:UpdateEntry(sender, tonumber(mapID), tonumber(level))
+    if mapID and level and IsInGroup() then
+        local fullName = NormalizeSenderName(sender)
+        if fullName and (KeystoneManager:IsGroupMember(fullName) or Ambiguate(fullName, "none") == UnitName("player")) then
+            KeystoneManager:UpdateEntry(sender, tonumber(mapID), tonumber(level))
+        end
     end
 end
 
@@ -947,9 +1005,15 @@ function Interface:Refresh()
     self.container:SetWidth(currentRowWidth)
 
     local list = {}
+    local myFullName = GetMyFullName()
     for fullName, data in pairs(KeystoneManager.partyData) do
         if not data.mapID or not data.level or data.mapID == 0 or data.level == 0 then
             -- skip incomplete cache entries
+        elseif not IsInGroup() and fullName ~= myFullName and Ambiguate(fullName, "none") ~= UnitName("player") then
+            -- skip non-party entries when solo
+        elseif IsInGroup() and fullName ~= myFullName and Ambiguate(fullName, "none") ~= UnitName("player")
+            and not KeystoneManager:IsGroupMember(fullName) then
+            -- skip players not in current group
         else
         local dName, texture = KeystoneManager:GetMapInfo(data.mapID)
         local portID = KeystoneManager:GetTeleportID(data.mapID)
@@ -1135,6 +1199,8 @@ function Keystones:Init()
 
     Interface:Create()
     Interface:UpdatePosition()
+    KeystoneManager:CleanParty()
+    KeystoneManager:ScanOwnKey()
     Interface:Refresh()
 
     EnsureExternalLibs()
@@ -1214,8 +1280,6 @@ function Keystones:Init()
     eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
     eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED_REWARDS")
     eventFrame:RegisterEvent("CHALLENGE_MODE_RESET")
-
-    KeystoneManager:ScanOwnKey()
 end
 
 function Keystones:UpdateSettings()
