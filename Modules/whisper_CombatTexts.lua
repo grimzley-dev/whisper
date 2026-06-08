@@ -22,6 +22,8 @@ end
 
 local CombatTexts = {}
 CombatTexts.enabled = true
+CombatTexts.isAnchorMode = false
+CombatTexts.isDeathAnimTestMode = false
 CombatTexts.isTestMode = false
 CombatTexts.displayName = "Combat Texts"
 CombatTexts.dbKey = "combatTexts"
@@ -67,6 +69,7 @@ local UnitInRaid = UnitInRaid
 local GetPlayerInfoByGUID = GetPlayerInfoByGUID
 local C_ClassColor = C_ClassColor
 local C_Timer = C_Timer
+local UIFrameFadeIn = UIFrameFadeIn
 local UIFrameFadeOut = UIFrameFadeOut
 local UIFrameFadeRemoveFrame = UIFrameFadeRemoveFrame
 local InCombatLockdown = InCombatLockdown
@@ -75,6 +78,10 @@ local format = string.format
 local ipairs = ipairs
 local math_floor = math.floor
 local math_max = math.max
+local math_min = math.min
+local math_abs = math.abs
+local math_exp = math.exp
+local GetTime = GetTime
 local IsInRaid = IsInRaid
 local IsInGroup = IsInGroup
 local issecretvalue = issecretvalue
@@ -83,7 +90,6 @@ local STANDARD_FONT = whisper.Style.STANDARD_FONT
 local FONT_SIZE = 16
 local HOLD_TIME = 4.0
 local FADE_TIME = 1.0
-local RESET_WINDOW = 5.0
 
 local MESSAGE_TYPES = { "enterCombat", "exitCombat", "lowDurability", "partyDeath" }
 local LINE_HEIGHT = FONT_SIZE
@@ -94,6 +100,14 @@ local EXIT_TEXT = "-Combat"
 local EXIT_COLOR = { 124 / 255, 124 / 255, 124 / 255, 1 }
 local MIN_FRAME_WIDTH = 40
 local TEXT_PADDING = 8
+local DEATH_LINE_SPACING = 2
+local DEATH_FADE_IN = 0.35
+local DEATH_FADE_OUT = 0.65
+local DEATH_FADE_OUT_FAST = 0.22
+local DEATH_SLIDE_IN = 14
+local DEATH_SCROLL_LERP = 16
+local TEST_DEATH_INTERVAL = 1.8
+local MAX_DEATH_LINES = 20
 local DEFAULT_OFFSET_X_PERCENT = 0
 local DEFAULT_OFFSET_Y_PERCENT = 7
 
@@ -104,12 +118,38 @@ local messageFrames = {}
 local activeMessages = {}
 local eventFrame
 local inCombat = false
-local recentDeaths = 0
-local resetTimer = nil
 local deathVisibleUntil = 0
-local deathHideTimer = nil
 local durabilityPending = false
 local announcedDeadUnits = {}
+local testDeathTimer
+local testDeathCounter = 0
+
+local ANCHOR_PLACEHOLDER_DEATHS = {
+    { name = "Thrall", class = "SHAMAN" },
+    { name = "Jaina", class = "MAGE" },
+    { name = "Sylvanas", class = "HUNTER" },
+    { name = "Tyrande", class = "PRIEST" },
+    { name = "Varian", class = "WARRIOR" },
+    { name = "Arthas", class = "DEATHKNIGHT" },
+    { name = "Illidan", class = "DEMONHUNTER" },
+    { name = "Gul'dan", class = "WARLOCK" },
+    { name = "Anduin", class = "PRIEST" },
+    { name = "Garrosh", class = "WARRIOR" },
+    { name = "Vol'jin", class = "SHAMAN" },
+    { name = "Rexxar", class = "HUNTER" },
+    { name = "Khadgar", class = "MAGE" },
+    { name = "Velen", class = "PRIEST" },
+    { name = "Baine", class = "WARRIOR" },
+    { name = "Lor'themar", class = "HUNTER" },
+    { name = "Genn", class = "WARRIOR" },
+    { name = "Malfurion", class = "DRUID" },
+    { name = "Uther", class = "PALADIN" },
+    { name = "Rokhan", class = "ROGUE" },
+}
+
+local function IsPreviewActive()
+    return CombatTexts.isAnchorMode or CombatTexts.isDeathAnimTestMode
+end
 
 -- =========================
 -- Position / layout
@@ -160,6 +200,101 @@ local function MeasureTextWidth(text)
     return measureFS:GetStringWidth() or 0
 end
 
+local function FormatClassColoredText(classFilename, text)
+    if not text or not classFilename or not C_ClassColor then return text end
+    local color = C_ClassColor.GetClassColor(classFilename)
+    if not color or not color.r then return text end
+    return format("|cff%02x%02x%02x%s|r", color.r * 255, color.g * 255, color.b * 255, text)
+end
+
+local function FormatDeathMessage(name, classFilename)
+    return FormatClassColoredText(classFilename, name or "Unknown") .. " died"
+end
+
+local function GetPlaceholderDeath(index)
+    return ANCHOR_PLACEHOLDER_DEATHS[((index - 1) % #ANCHOR_PLACEHOLDER_DEATHS) + 1]
+end
+
+local function GetDeathLimit()
+    return whisperDB.combatTexts and whisperDB.combatTexts.limit or 5
+end
+
+local EnsureDeathAnimator
+
+local function ForceDeathEntryOut(frame, entry, fast)
+    if not entry then return end
+    entry.generation = (entry.generation or 0) + 1
+    entry.fadeState = "out"
+    entry.fadeOutDuration = fast and DEATH_FADE_OUT_FAST or DEATH_FADE_OUT
+    EnsureDeathAnimator(frame)
+end
+
+local function EnforceDeathLimitBeforeAdd(frame)
+    local limit = GetDeathLimit()
+    local excess = #frame.entries - limit + 1
+    if excess <= 0 then return end
+
+    local sorted = GetSortedDeathEntries(frame)
+    for i = 1, excess do
+        if sorted[i] then
+            ForceDeathEntryOut(frame, sorted[i], true)
+        end
+    end
+end
+
+local function EnforceDeathLimit(frame)
+    local limit = GetDeathLimit()
+    local excess = #frame.entries - limit
+    if excess <= 0 then return end
+
+    local sorted = GetSortedDeathEntries(frame)
+    for i = 1, excess do
+        local oldest = sorted[i]
+        if oldest and oldest.fadeState ~= "out" then
+            ForceDeathEntryOut(frame, oldest, true)
+        elseif oldest then
+            oldest.fadeOutDuration = DEATH_FADE_OUT_FAST
+        end
+    end
+end
+
+local function GetDeathPitch()
+    return LINE_HEIGHT + DEATH_LINE_SPACING
+end
+
+local function GetSlotY(slotIndex)
+    return -((slotIndex - 1) * GetDeathPitch())
+end
+
+local function GetSortedDeathEntries(frame)
+    local sorted = {}
+    for _, entry in ipairs(frame.entries) do
+        table.insert(sorted, entry)
+    end
+    table.sort(sorted, function(a, b)
+        return (a.slotIndex or 0) < (b.slotIndex or 0)
+    end)
+    return sorted
+end
+
+local function CompactDeathSlots(frame)
+    if not frame.entries or #frame.entries == 0 then return end
+    local sorted = GetSortedDeathEntries(frame)
+    for i, entry in ipairs(sorted) do
+        if entry.slotIndex ~= i then
+            entry.slotIndex = i
+            entry.targetOffsetY = GetSlotY(i)
+            EnsureDeathAnimator(frame)
+        end
+    end
+    frame.entries = sorted
+end
+
+local function ExpLerp(current, target, elapsed, speed)
+    local t = 1 - math_exp(-speed * elapsed)
+    return current + (target - current) * t
+end
+
 local function UpdateDeathFrameWidth(frame)
     if not frame then return end
     local width = MIN_FRAME_WIDTH
@@ -167,6 +302,260 @@ local function UpdateDeathFrameWidth(frame)
         width = math_max(math_floor(frame._widestWidth + TEXT_PADDING), MIN_FRAME_WIDTH)
     end
     frame:SetWidth(width)
+end
+
+local function RecalculateWidestDeath(frame)
+    frame._widestWidth = 0
+    frame._widestText = nil
+    if not frame.entries then return end
+    for _, entry in ipairs(frame.entries) do
+        local width = MeasureTextWidth(entry.plainText)
+        if width > (frame._widestWidth or 0) then
+            frame._widestWidth = width
+            frame._widestText = entry.plainText
+        end
+    end
+end
+
+local function RemoveDeathEntry(frame, entry)
+    if not entry or not frame.entries then return end
+    entry.generation = (entry.generation or 0) + 1
+    entry.fs:Hide()
+    entry.fs:SetAlpha(1)
+    entry.fs._entry = nil
+    for i, e in ipairs(frame.entries) do
+        if e == entry then
+            table.remove(frame.entries, i)
+            break
+        end
+    end
+    RecalculateWidestDeath(frame)
+end
+
+local function ClearDeathFrame(frame)
+    if not frame then return end
+    frame._animatorActive = false
+    frame:SetScript("OnUpdate", nil)
+    frame._displayHeight = nil
+    frame.entries = frame.entries or {}
+
+    for i = #frame.entries, 1, -1 do
+        RemoveDeathEntry(frame, frame.entries[i])
+    end
+
+    if frame.lines then
+        for _, lineFs in ipairs(frame.lines) do
+            lineFs._entry = nil
+            lineFs:Hide()
+            lineFs:SetAlpha(1)
+            lineFs:SetText("")
+        end
+    end
+
+    frame.entries = {}
+    frame._widestText = nil
+    frame._widestWidth = nil
+end
+
+local function EnsureDeathLinePool(frame)
+    frame.lines = frame.lines or {}
+    local needed = math_max(MAX_DEATH_LINES, GetDeathLimit())
+    for i = 1, needed do
+        if not frame.lines[i] then
+            local fs = frame:CreateFontString(nil, "OVERLAY")
+            fs:SetFont(STANDARD_FONT, FONT_SIZE, "OUTLINE")
+            fs:SetJustifyH("CENTER")
+            fs:SetWordWrap(false)
+            fs:Hide()
+            frame.lines[i] = fs
+        end
+    end
+end
+
+local function UpdateDeathFrameAnimatedHeight(frame, elapsed)
+    local displayHeight = LINE_HEIGHT
+    if #frame.entries > 0 then
+        local maxBottom = 0
+        for _, entry in ipairs(frame.entries) do
+            local bottom = -entry.currentOffsetY + LINE_HEIGHT
+            if bottom > maxBottom then
+                maxBottom = bottom
+            end
+        end
+        displayHeight = math_max(LINE_HEIGHT, maxBottom)
+    end
+
+    if not frame._displayHeight then
+        frame._displayHeight = displayHeight
+    else
+        frame._displayHeight = ExpLerp(frame._displayHeight, displayHeight, elapsed, DEATH_SCROLL_LERP)
+    end
+    frame:SetHeight(frame._displayHeight)
+    UpdateDeathFrameWidth(frame)
+end
+
+local function IsDeathAnimating(frame)
+    for _, entry in ipairs(frame.entries) do
+        local targetY = entry.targetOffsetY or GetSlotY(entry.slotIndex or 1)
+        if entry.fadeState ~= "idle" then return true end
+        if math_abs(entry.currentOffsetY - targetY) > 0.25 then return true end
+        if entry.fadeState == "out" and entry.alpha > 0.01 then return true end
+        if entry.fadeState == "in" and entry.alpha < 0.99 then return true end
+    end
+    return false
+end
+
+function CombatTexts:UpdateDeathAnimations(frame, elapsed)
+    if not frame or not frame.entries then return end
+
+    for _, entry in ipairs(frame.entries) do
+        local targetY = entry.targetOffsetY or GetSlotY(entry.slotIndex or 1)
+        entry.targetOffsetY = targetY
+
+        if entry.fadeState == "in" then
+            entry.alpha = math_min(1, entry.alpha + elapsed / DEATH_FADE_IN)
+            if entry.alpha >= 1 then
+                entry.alpha = 1
+                entry.fadeState = "idle"
+            end
+        elseif entry.fadeState == "out" then
+            local duration = entry.fadeOutDuration or DEATH_FADE_OUT
+            entry.alpha = math_max(0, entry.alpha - elapsed / duration)
+        end
+
+        entry.currentOffsetY = ExpLerp(entry.currentOffsetY, targetY, elapsed, DEATH_SCROLL_LERP)
+        entry.fs:SetAlpha(entry.alpha)
+        entry.fs:ClearAllPoints()
+        entry.fs:SetPoint("TOP", frame, "TOP", 0, entry.currentOffsetY)
+    end
+
+    for i = #frame.entries, 1, -1 do
+        local entry = frame.entries[i]
+        if entry.fadeState == "out" and entry.alpha <= 0.01 then
+            RemoveDeathEntry(frame, entry)
+        end
+    end
+
+    UpdateDeathFrameAnimatedHeight(frame, elapsed)
+    self:ArrangeMessages()
+
+    if not IsDeathAnimating(frame) and #frame.entries == 0 then
+        frame._animatorActive = false
+        frame:SetScript("OnUpdate", nil)
+        frame._displayHeight = nil
+        if frame:IsShown() then
+            frame:Hide()
+            frame._lastYOffset = nil
+            activeMessages.partyDeath = nil
+            self:ArrangeMessages()
+        end
+    end
+end
+
+EnsureDeathAnimator = function(frame)
+    if frame._animatorActive then return end
+    frame._animatorActive = true
+    frame:SetScript("OnUpdate", function(self, dt)
+        CombatTexts:UpdateDeathAnimations(self, dt)
+    end)
+end
+
+local function ScheduleDeathLineFade(frame, entry)
+    entry.generation = (entry.generation or 0) + 1
+    local gen = entry.generation
+    C_Timer.After(HOLD_TIME, function()
+        if entry.generation ~= gen or entry.fadeState ~= "idle" then return end
+        ForceDeathEntryOut(frame, entry, false)
+    end)
+end
+
+local function AddDeathLine(frame, msg, plainText)
+    EnsureDeathLinePool(frame)
+    EnforceDeathLimitBeforeAdd(frame)
+
+    local fs
+    for _, lineFs in ipairs(frame.lines) do
+        if not lineFs._entry then
+            fs = lineFs
+            break
+        end
+    end
+    if not fs then return end
+
+    CompactDeathSlots(frame)
+
+    local newSlot = #frame.entries + 1
+    local targetY = GetSlotY(newSlot)
+    local entry = {
+        fs = fs,
+        plainText = plainText,
+        generation = 0,
+        fadeState = "in",
+        alpha = 0,
+        slotIndex = newSlot,
+        currentOffsetY = targetY - DEATH_SLIDE_IN,
+        targetOffsetY = targetY,
+    }
+    fs._entry = entry
+    fs:SetText(msg)
+    fs:Show()
+
+    table.insert(frame.entries, entry)
+
+    local plainWidth = MeasureTextWidth(plainText)
+    if not frame._widestWidth or plainWidth > frame._widestWidth then
+        frame._widestWidth = plainWidth
+        frame._widestText = plainText
+    end
+
+    EnsureDeathAnimator(frame)
+    ScheduleDeathLineFade(frame, entry)
+end
+
+local function AddDeathLineStatic(frame, msg, plainText, index)
+    EnsureDeathLinePool(frame)
+    local fs = frame.lines[index]
+    if not fs then return false end
+
+    local targetY = GetSlotY(index)
+    local entry = {
+        fs = fs,
+        plainText = plainText,
+        generation = 0,
+        fadeState = "idle",
+        alpha = 1,
+        slotIndex = index,
+        currentOffsetY = targetY,
+        targetOffsetY = targetY,
+        static = true,
+    }
+    fs._entry = entry
+    fs:SetText(msg)
+    fs:SetAlpha(1)
+    fs:ClearAllPoints()
+    fs:SetPoint("TOP", frame, "TOP", 0, targetY)
+    fs:Show()
+    table.insert(frame.entries, entry)
+
+    local plainWidth = MeasureTextWidth(plainText)
+    if not frame._widestWidth or plainWidth > frame._widestWidth then
+        frame._widestWidth = plainWidth
+        frame._widestText = plainText
+    end
+    return true
+end
+
+local function ShowStaticDeathPlaceholders(frame)
+    EnsureDeathLinePool(frame)
+    ClearDeathFrame(frame)
+    local limit = GetDeathLimit()
+    for i = 1, limit do
+        local sample = GetPlaceholderDeath(i)
+        local plainText = format("%s died", sample.name)
+        local msg = FormatDeathMessage(sample.name, sample.class)
+        AddDeathLineStatic(frame, msg, plainText, i)
+    end
+    CombatTexts:UpdateDeathFrameSize()
 end
 
 local function ApplyCombatTextStyles(db)
@@ -238,7 +627,7 @@ function CombatTexts:ArrangeMessages()
         container._lastHeight = newHeight
     end
 
-    if self.isTestMode then
+    if self.isAnchorMode then
         self:UpdateTestOverlay()
     end
 end
@@ -265,7 +654,7 @@ function CombatTexts:EnsureTestOverlay()
         name = "WhisperCombatTextsOverlay",
         label = "Combat Texts",
         container = function() return container end,
-        isActive = function() return CombatTexts.isTestMode end,
+        isActive = function() return CombatTexts.isAnchorMode end,
         getContentFrames = function()
             local frames = {}
             for _, frame in pairs(messageFrames) do
@@ -286,7 +675,7 @@ function CombatTexts:EnsureTestOverlay()
 end
 
 function CombatTexts:UpdateTestOverlay()
-    if not self.isTestMode or not container then
+    if not self.isAnchorMode or not container then
         if testOverlayCtrl then testOverlayCtrl:Hide() end
         return
     end
@@ -299,26 +688,31 @@ function CombatTexts:HideTestOverlay()
 end
 
 function CombatTexts:GetMessageFrame(msgType)
-    if messageFrames[msgType] then return messageFrames[msgType] end
+    if messageFrames[msgType] then
+        if msgType == "partyDeath" then
+            EnsureDeathLinePool(messageFrames[msgType])
+        end
+        return messageFrames[msgType]
+    end
     if not container then self:CreateContainer() end
 
     if msgType == "partyDeath" then
         local frame = CreateFrame("Frame", nil, container)
         frame:SetWidth(MIN_FRAME_WIDTH)
         frame:Hide()
+        frame.entries = {}
+        frame.lines = {}
+        frame._animatorActive = false
 
-        local scroll = CreateFrame("ScrollingMessageFrame", nil, frame)
-        scroll:SetAllPoints()
-        scroll:SetFont(STANDARD_FONT, FONT_SIZE, "OUTLINE")
-        scroll:SetJustifyH("CENTER")
-        scroll:SetJustifyV("TOP")
-        scroll:SetInsertMode("TOP")
-        scroll:SetFadeDuration(FADE_TIME)
-        scroll:SetTimeVisible(HOLD_TIME)
-        scroll:SetSpacing(GetLineSpacing())
-        scroll:SetFading(true)
+        for i = 1, MAX_DEATH_LINES do
+            local fs = frame:CreateFontString(nil, "OVERLAY")
+            fs:SetFont(STANDARD_FONT, FONT_SIZE, "OUTLINE")
+            fs:SetJustifyH("CENTER")
+            fs:SetWordWrap(false)
+            fs:Hide()
+            frame.lines[i] = fs
+        end
 
-        frame.scroll = scroll
         frame.msgType = msgType
         messageFrames[msgType] = frame
         return frame
@@ -343,18 +737,30 @@ end
 
 function CombatTexts:UpdateDeathFrameSize()
     local frame = messageFrames.partyDeath
-    if not frame or not frame.scroll then return end
-    local limit = whisperDB.combatTexts.limit or 5
-    local spacing = GetLineSpacing()
-    local height = (limit * LINE_HEIGHT) + ((limit - 1) * spacing)
-    frame:SetHeight(height)
-    frame.scroll:SetMaxLines(limit)
-    frame.scroll:SetSpacing(spacing)
+    if not frame or not frame.entries then return end
+    if frame._animatorActive then return end
+
+    local maxSlot = 0
+    for _, entry in ipairs(frame.entries) do
+        if entry.slotIndex then
+            maxSlot = math_max(maxSlot, entry.slotIndex)
+        end
+    end
+
+    if maxSlot == 0 then
+        frame:SetHeight(LINE_HEIGHT)
+        frame._displayHeight = nil
+    else
+        local height = maxSlot * LINE_HEIGHT + (maxSlot - 1) * DEATH_LINE_SPACING
+        frame:SetHeight(height)
+        frame._displayHeight = height
+    end
+    UpdateDeathFrameWidth(frame)
 end
 
 function CombatTexts:PrepareMessage(msgType, overrideText, overrideColor)
     if not self.enabled then return nil end
-    if self.isTestMode and not overrideText then return nil end
+    if IsPreviewActive() and not overrideText then return nil end
 
     local db = whisperDB.combatTexts
     local enabled, msgText, color = GetMessageConfig(db, msgType)
@@ -381,18 +787,23 @@ function CombatTexts:ShowFlashMessage(msgType, overrideText, overrideColor)
     local frame = self:PrepareMessage(msgType, overrideText, overrideColor)
     if not frame then return end
 
-    local duration = whisperDB.combatTexts.duration or 2.5
+    local fadeOut = whisperDB.combatTexts.duration or 2.5
     frame.generation = (frame.generation or 0) + 1
     local myGeneration = frame.generation
 
-    UIFrameFadeOut(frame, duration, 1, 0)
-    C_Timer.After(duration, function()
-        if frame.generation == myGeneration and not CombatTexts.isTestMode then
-            frame:Hide()
-            frame._lastYOffset = nil
-            activeMessages[msgType] = nil
-            CombatTexts:ArrangeMessages()
-        end
+    frame:SetAlpha(0)
+    UIFrameFadeIn(frame, DEATH_FADE_IN, 0, 1)
+    C_Timer.After(DEATH_FADE_IN, function()
+        if frame.generation ~= myGeneration or not frame:IsShown() then return end
+        UIFrameFadeOut(frame, fadeOut, 1, 0)
+        C_Timer.After(fadeOut, function()
+            if frame.generation == myGeneration and not IsPreviewActive() then
+                frame:Hide()
+                frame._lastYOffset = nil
+                activeMessages[msgType] = nil
+                CombatTexts:ArrangeMessages()
+            end
+        end)
     end)
 end
 
@@ -400,14 +811,31 @@ function CombatTexts:ShowPersistentMessage(msgType)
     self:PrepareMessage(msgType)
 end
 
-function CombatTexts:HidePersistentMessage(msgType)
+function CombatTexts:HidePersistentMessage(msgType, instant)
     local frame = messageFrames[msgType]
-    if frame then
+    if not frame then return end
+
+    if instant or not frame:IsShown() then
+        UIFrameFadeRemoveFrame(frame)
         frame:Hide()
         frame._lastYOffset = nil
         activeMessages[msgType] = nil
         self:ArrangeMessages()
+        return
     end
+
+    UIFrameFadeRemoveFrame(frame)
+    frame.generation = (frame.generation or 0) + 1
+    local myGeneration = frame.generation
+
+    UIFrameFadeOut(frame, DEATH_FADE_OUT, frame:GetAlpha(), 0)
+    C_Timer.After(DEATH_FADE_OUT, function()
+        if frame.generation ~= myGeneration then return end
+        frame:Hide()
+        frame._lastYOffset = nil
+        activeMessages[msgType] = nil
+        CombatTexts:ArrangeMessages()
+    end)
 end
 
 -- =========================
@@ -426,7 +854,7 @@ function CombatTexts:OnExitCombat()
 end
 
 function CombatTexts:CheckDurability()
-    if not self.enabled or self.isTestMode then return end
+    if not self.enabled or IsPreviewActive() then return end
     if durabilityPending then return end
     durabilityPending = true
     C_Timer.After(0.5, function()
@@ -436,7 +864,7 @@ function CombatTexts:CheckDurability()
 end
 
 function CombatTexts:DoCheckDurability()
-    if not self.enabled or self.isTestMode then return end
+    if not self.enabled or IsPreviewActive() then return end
 
     local db = whisperDB.combatTexts
     local cfg = db.LowDurability or {}
@@ -573,72 +1001,25 @@ local function ScanPartyForNewDeaths()
     end
 end
 
-local function ResetSpamCounter()
-    recentDeaths = 0
-    resetTimer = nil
-end
-
-local function ScheduleDeathFrameHide()
-    if deathHideTimer then C_Timer.CancelTimer(deathHideTimer) end
-    deathHideTimer = C_Timer.After(HOLD_TIME + FADE_TIME + 0.15, function()
-        deathHideTimer = nil
-        if GetTime() < deathVisibleUntil then
-            ScheduleDeathFrameHide()
-            return
-        end
-        local frame = messageFrames.partyDeath
-        if frame and frame.scroll then
-            frame.scroll:Clear()
-            frame._widestText = nil
-            frame._widestWidth = nil
-            frame:Hide()
-            frame._lastYOffset = nil
-            activeMessages.partyDeath = nil
-            CombatTexts:ArrangeMessages()
-        end
-    end)
-end
-
 AnnounceDeath = function(name, classFilename)
-    local db = whisperDB.combatTexts
-    local limit = db.limit or 5
-    if recentDeaths >= limit then return end
-
-    if recentDeaths == 0 then
-        if resetTimer then C_Timer.CancelTimer(resetTimer) end
-        resetTimer = C_Timer.After(RESET_WINDOW, ResetSpamCounter)
-    end
-    recentDeaths = recentDeaths + 1
-
-    local classColorStr = "|cffffffff"
-    if classFilename and not IsSecretValue(classFilename) then
-        local color = C_ClassColor.GetClassColor(classFilename)
-        if color then classColorStr = "|c" .. color:GenerateHexColor() end
-    end
-
     local frame = messageFrames.partyDeath
     if not frame then
         CombatTexts:GetMessageFrame("partyDeath")
         CombatTexts:UpdateDeathFrameSize()
         frame = messageFrames.partyDeath
     end
-    if not frame or not frame.scroll then return end
+    if not frame or not frame.entries then return end
 
+    local class = classFilename
+    if IsSecretValue(classFilename) then class = nil end
     local plainText = format("%s died", name or "Unknown")
-    local msg = format("%s%s|r died", classColorStr, name or "Unknown")
-    local plainWidth = MeasureTextWidth(plainText)
-    if not frame._widestWidth or plainWidth > frame._widestWidth then
-        frame._widestWidth = plainWidth
-        frame._widestText = plainText
-    end
+    local msg = FormatDeathMessage(name, class)
 
-    UpdateDeathFrameWidth(frame)
-    frame.scroll:AddMessage(msg)
+    AddDeathLine(frame, msg, plainText)
     frame:Show()
     activeMessages.partyDeath = true
-    deathVisibleUntil = GetTime() + HOLD_TIME + FADE_TIME
+    deathVisibleUntil = GetTime() + HOLD_TIME + DEATH_FADE_OUT
     CombatTexts:ArrangeMessages()
-    ScheduleDeathFrameHide()
 end
 
 local function ResolveDeathInfo(deadGUID)
@@ -665,7 +1046,7 @@ local function ResolveDeathInfo(deadGUID)
 end
 
 function CombatTexts:OnUnitDied(_, deadGUID)
-    if not self.enabled or self.isTestMode then return end
+    if not self.enabled or IsPreviewActive() then return end
     if not IsInGroup() then return end
     local enabled = select(1, GetMessageConfig(whisperDB.combatTexts, "partyDeath"))
     if not enabled then return end
@@ -675,47 +1056,193 @@ end
 -- =========================
 -- Test mode
 -- =========================
-function CombatTexts:RebuildTestDeaths()
-    if not self.isTestMode then return end
+function CombatTexts:StopTestDeathLoop()
+    if testDeathTimer then
+        C_Timer.CancelTimer(testDeathTimer)
+        testDeathTimer = nil
+    end
+end
 
-    local db = whisperDB.combatTexts
+function CombatTexts:SpawnTestDeath()
+    if not self.isDeathAnimTestMode then return end
+
+    local frame = messageFrames.partyDeath
+    if not frame then
+        self:GetMessageFrame("partyDeath")
+        frame = messageFrames.partyDeath
+    end
+    if not frame or not frame.entries then return end
+
+    testDeathCounter = testDeathCounter + 1
+    local sample = GetPlaceholderDeath(testDeathCounter)
+    local plainText = format("%s died", sample.name)
+    local msg = FormatDeathMessage(sample.name, sample.class)
+
+    AddDeathLine(frame, msg, plainText)
+    frame:Show()
+    activeMessages.partyDeath = true
+    self:ArrangeMessages()
+end
+
+function CombatTexts:StartTestDeathLoop()
+    self:StopTestDeathLoop()
+
     local deathFrame = self:GetMessageFrame("partyDeath")
-    if not deathFrame or not deathFrame.scroll then return end
+    if deathFrame then
+        ClearDeathFrame(deathFrame)
+    end
+    testDeathCounter = 0
 
-    self:UpdateDeathFrameSize()
+    local function scheduleNext()
+        if not self.isDeathAnimTestMode then return end
+        self:SpawnTestDeath()
+        testDeathTimer = C_Timer.After(TEST_DEATH_INTERVAL, scheduleNext)
+    end
 
-    deathFrame.scroll:SetFadeDuration(0)
-    deathFrame.scroll:SetTimeVisible(9999)
-    deathFrame.scroll:Clear()
+    scheduleNext()
+end
 
-    deathFrame._widestText = nil
-    deathFrame._widestWidth = 0
-
-    local name = UnitName("player") or "Player"
-    local _, classFilename = UnitClass("player")
-    local color = C_ClassColor.GetClassColor(classFilename or "PRIEST")
-    local colorStr = color and ("|c" .. color:GenerateHexColor()) or "|cffffffff"
-    local limit = db.limit or 5
-
-    for i = 1, limit do
-        local plain = format("%s died (%d)", name, i)
-        local plainWidth = MeasureTextWidth(plain)
-        if plainWidth > (deathFrame._widestWidth or 0) then
-            deathFrame._widestWidth = plainWidth
-            deathFrame._widestText = plain
+function CombatTexts:HideStaticCombatMessages()
+    for _, msgType in ipairs({ "enterCombat", "exitCombat", "lowDurability" }) do
+        local frame = messageFrames[msgType]
+        if frame then
+            UIFrameFadeRemoveFrame(frame)
+            frame:Hide()
+            frame._lastYOffset = nil
+            activeMessages[msgType] = nil
         end
     end
+end
 
-    UpdateDeathFrameWidth(deathFrame)
+function CombatTexts:ShowStaticCombatMessages()
+    local db = whisperDB.combatTexts
+    container:Show()
 
-    for i = 1, limit do
-        local plain = format("%s died (%d)", name, i)
-        local msg = format("%s%s|r died (%d)", colorStr, name, i)
-        deathFrame.scroll:AddMessage(msg)
+    for _, msgType in ipairs({ "enterCombat", "exitCombat", "lowDurability" }) do
+        local enabled, msgText, msgColor = GetMessageConfig(db, msgType)
+        if enabled then
+            local frame = self:GetMessageFrame(msgType)
+            frame.text:SetText(msgText)
+            frame.text:SetTextColor(msgColor[1], msgColor[2], msgColor[3], msgColor[4] or 1)
+            frame:SetAlpha(1)
+            frame:Show()
+            activeMessages[msgType] = true
+        end
     end
+end
 
+function CombatTexts:ShowAnchorPreview()
+    self:ShowStaticCombatMessages()
+
+    local deathFrame = self:GetMessageFrame("partyDeath")
+    ShowStaticDeathPlaceholders(deathFrame)
     deathFrame:Show()
     activeMessages.partyDeath = true
+
+    self:ArrangeMessages()
+    self:UpdateTestOverlay()
+end
+
+function CombatTexts:ShowDeathAnimPreview()
+    self:HideTestOverlay()
+    container:Show()
+    self:HideStaticCombatMessages()
+    self:StartTestDeathLoop()
+    self:ArrangeMessages()
+end
+
+function CombatTexts:RefreshAnchorDeathPlaceholders()
+    if not self.isAnchorMode then return end
+    local deathFrame = messageFrames.partyDeath
+    if not deathFrame then return end
+    ShowStaticDeathPlaceholders(deathFrame)
+    deathFrame:Show()
+    activeMessages.partyDeath = true
+    self:ArrangeMessages()
+    self:UpdateTestOverlay()
+end
+
+function CombatTexts:HidePreview()
+    self:StopTestDeathLoop()
+    for _, frame in pairs(messageFrames) do
+        if frame.entries then
+            ClearDeathFrame(frame)
+        end
+        frame:Hide()
+        frame._lastYOffset = nil
+    end
+    activeMessages = {}
+    self:HideTestOverlay()
+    self:ArrangeMessages()
+    self:SyncPreviewFlags()
+end
+
+function CombatTexts:ToggleAnchorMode()
+    if not container then self:CreateContainer() end
+
+    if self.isAnchorMode then
+        self.isAnchorMode = false
+        self:HidePreview()
+        self:ApplySettings()
+        if not inCombat then
+            self:DoCheckDurability()
+        end
+        self:SyncPreviewFlags()
+        return
+    end
+
+    if self.isDeathAnimTestMode then
+        self.isDeathAnimTestMode = false
+        self:StopTestDeathLoop()
+    end
+    self:HidePreview()
+    self.isAnchorMode = true
+    self:ShowAnchorPreview()
+    self:SyncPreviewFlags()
+end
+
+function CombatTexts:ToggleDeathAnimTestMode()
+    if not container then self:CreateContainer() end
+
+    if self.isDeathAnimTestMode then
+        self.isDeathAnimTestMode = false
+        self:HidePreview()
+        self:ApplySettings()
+        if not inCombat then
+            self:DoCheckDurability()
+        end
+        self:SyncPreviewFlags()
+        return
+    end
+
+    if self.isAnchorMode then
+        self.isAnchorMode = false
+    end
+    self:HidePreview()
+    self.isDeathAnimTestMode = true
+    self:ShowDeathAnimPreview()
+    self:SyncPreviewFlags()
+end
+
+function CombatTexts:SyncPreviewFlags()
+    self.isTestMode = self.isAnchorMode or self.isDeathAnimTestMode
+end
+
+function CombatTexts:ToggleTestMode()
+    if self.isDeathAnimTestMode then
+        self:ToggleDeathAnimTestMode()
+    elseif self.isAnchorMode then
+        self:ToggleAnchorMode()
+    end
+    if self.anchorButton then
+        self.anchorButton:SetText("Anchor")
+        self.anchorButton:GetFontString():SetTextColor(1, 1, 1)
+    end
+    if self.deathTestButton then
+        self.deathTestButton:SetText("Test")
+        self.deathTestButton:GetFontString():SetTextColor(1, 1, 1)
+    end
+    self:SyncPreviewFlags()
 end
 
 function CombatTexts:SaveDragPosition()
@@ -771,58 +1298,6 @@ function CombatTexts:SaveDragPosition()
     db.Position.YOffset = math_floor(finalY + 0.5)
 end
 
-function CombatTexts:ShowTestPreview()
-    local db = whisperDB.combatTexts
-    container:Show()
-
-    for _, msgType in ipairs({ "enterCombat", "exitCombat", "lowDurability" }) do
-        local enabled, msgText, msgColor = GetMessageConfig(db, msgType)
-        if enabled then
-            local frame = self:GetMessageFrame(msgType)
-            frame.text:SetText(msgText)
-            frame.text:SetTextColor(msgColor[1], msgColor[2], msgColor[3], msgColor[4] or 1)
-            frame:SetAlpha(1)
-            frame:Show()
-            activeMessages[msgType] = true
-        end
-    end
-
-    self:RebuildTestDeaths()
-    self:ArrangeMessages()
-    self:UpdateTestOverlay()
-end
-
-function CombatTexts:HideTestPreview()
-    for msgType, frame in pairs(messageFrames) do
-        if frame.scroll then
-            frame.scroll:Clear()
-            frame.scroll:SetFadeDuration(FADE_TIME)
-            frame.scroll:SetTimeVisible(HOLD_TIME)
-        end
-        frame:Hide()
-        frame._lastYOffset = nil
-    end
-    activeMessages = {}
-    self:HideTestOverlay()
-    self:ArrangeMessages()
-end
-
-function CombatTexts:ToggleTestMode()
-    if not container then self:CreateContainer() end
-
-    self.isTestMode = not self.isTestMode
-
-    if self.isTestMode then
-        self:ShowTestPreview()
-    else
-        self:HideTestPreview()
-        self:ApplySettings()
-        if not inCombat then
-            self:DoCheckDurability()
-        end
-    end
-end
-
 -- =========================
 -- Settings
 -- =========================
@@ -868,7 +1343,7 @@ function CombatTexts:Init()
         eventFrame = CreateFrame("Frame")
         eventFrame:SetScript("OnEvent", function(_, event, ...)
             if not CombatTexts.enabled then return end
-            if CombatTexts.isTestMode then return end
+            if IsPreviewActive() then return end
 
             if event == "UNIT_DIED" then
                 CombatTexts:OnUnitDied(nil, ...)
@@ -879,15 +1354,9 @@ function CombatTexts:Init()
             elseif event == "UPDATE_INVENTORY_DURABILITY" then
                 CombatTexts:CheckDurability()
             elseif event == "GROUP_ROSTER_UPDATE" then
-                recentDeaths = 0
                 ClearAnnouncedDeadUnits()
-                if resetTimer then C_Timer.CancelTimer(resetTimer) end
-                resetTimer = nil
             elseif event == "PLAYER_ENTERING_WORLD" then
-                recentDeaths = 0
                 ClearAnnouncedDeadUnits()
-                if resetTimer then C_Timer.CancelTimer(resetTimer) end
-                resetTimer = nil
                 CombatTexts:ApplySettings()
             end
         end)
@@ -918,9 +1387,12 @@ function CombatTexts:Disable()
         eventFrame:UnregisterAllEvents()
     end
 
-    if self.isTestMode then
-        self:HideTestPreview()
-        self.isTestMode = false
+    self:StopTestDeathLoop()
+
+    if self.isAnchorMode or self.isDeathAnimTestMode then
+        self:HidePreview()
+        self.isAnchorMode = false
+        self.isDeathAnimTestMode = false
     end
 
     for _, frame in pairs(messageFrames) do
@@ -940,25 +1412,27 @@ end
 function CombatTexts:BuildOptionsPanel(content, toggleBtn)
     local db = whisperDB.combatTexts
 
-    local testBtn = whisper.GUI.CreateStyledButton(content, "Test", 80, 24)
-    testBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
-    testBtn:GetFontString():SetTextColor(1, 1, 1)
-    testBtn:SetScript("OnClick", function()
-        if self.ToggleTestMode then
-            self:ToggleTestMode()
-            if self.isTestMode then
-                testBtn:SetText("End")
-                testBtn:GetFontString():SetTextColor(1, 0.2, 0.2)
+    local anchorBtn = whisper.GUI.CreateStyledButton(content, "Anchor", 80, 24)
+    anchorBtn:SetPoint("TOPLEFT", toggleBtn, "TOPRIGHT", 10, 0)
+    anchorBtn:GetFontString():SetTextColor(1, 1, 1)
+    anchorBtn:SetScript("OnClick", function()
+        if self.ToggleAnchorMode then
+            self:ToggleAnchorMode()
+            if self.isAnchorMode then
+                anchorBtn:SetText("End")
+                anchorBtn:GetFontString():SetTextColor(1, 0.2, 0.2)
+                deathTestBtn:SetText("Test")
+                deathTestBtn:GetFontString():SetTextColor(1, 1, 1)
             else
-                testBtn:SetText("Test")
-                testBtn:GetFontString():SetTextColor(1, 1, 1)
+                anchorBtn:SetText("Anchor")
+                anchorBtn:GetFontString():SetTextColor(1, 1, 1)
             end
         end
     end)
-    self.testButton = testBtn
+    self.anchorButton = anchorBtn
 
     local resetBtn = whisper.GUI.CreateStyledButton(content, "Reset", 80, 24)
-    resetBtn:SetPoint("TOPLEFT", testBtn, "TOPRIGHT", 10, 0)
+    resetBtn:SetPoint("TOPLEFT", anchorBtn, "TOPRIGHT", 10, 0)
     resetBtn:GetFontString():SetTextColor(0.7, 0.7, 0.7)
 
     local sliderRefs = {}
@@ -1001,12 +1475,35 @@ function CombatTexts:BuildOptionsPanel(content, toggleBtn)
     local displaySection = whisper.GUI.CreateSettingsSection(content, "DISPLAY", { sliders = 1 })
     displaySection:SetPoint("TOPLEFT", posSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
 
+    local deathTestBtn = whisper.GUI.CreateStyledButton(displaySection, "Test", 50, 22)
+    deathTestBtn:SetPoint("TOPRIGHT", displaySection, "TOPRIGHT", -whisper.GUI.SLIDER_INSET, -6)
+    deathTestBtn:GetFontString():SetTextColor(1, 1, 1)
+    deathTestBtn:SetScript("OnClick", function()
+        if self.ToggleDeathAnimTestMode then
+            self:ToggleDeathAnimTestMode()
+            if self.isDeathAnimTestMode then
+                deathTestBtn:SetText("End")
+                deathTestBtn:GetFontString():SetTextColor(1, 0.2, 0.2)
+                anchorBtn:SetText("Anchor")
+                anchorBtn:GetFontString():SetTextColor(1, 1, 1)
+            else
+                deathTestBtn:SetText("Test")
+                deathTestBtn:GetFontString():SetTextColor(1, 1, 1)
+            end
+        end
+    end)
+    self.deathTestButton = deathTestBtn
+
     local limitSlider = whisper.GUI.AddSectionSlider(displaySection, nil, "Death Limit", 1, 20, 1,
         function() return db.limit end,
         function(val)
             db.limit = val
-            if self.isTestMode and self.RebuildTestDeaths then
-                self:RebuildTestDeaths()
+            if self.isAnchorMode then
+                self:RefreshAnchorDeathPlaceholders()
+            elseif self.isDeathAnimTestMode then
+                if messageFrames.partyDeath then
+                    EnforceDeathLimit(messageFrames.partyDeath)
+                end
             elseif self.UpdateDeathFrameSize then
                 self:UpdateDeathFrameSize()
             end

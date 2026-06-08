@@ -682,10 +682,6 @@ local function CreateConfigFrame()
         for name, module in pairs(whisper.modules) do
             if module.isTestMode and module.ToggleTestMode then
                 module:ToggleTestMode()
-                if module.testButton then
-                    module.testButton:SetText("Test")
-                    module.testButton:GetFontString():SetTextColor(1, 1, 1)
-                end
             end
         end
     end)
@@ -702,10 +698,6 @@ local function CreateConfigFrame()
         for name, module in pairs(whisper.modules) do
             if module.isTestMode and module.ToggleTestMode then
                 module:ToggleTestMode()
-                if module.testButton then
-                    module.testButton:SetText("Test")
-                    module.testButton:GetFontString():SetTextColor(1, 1, 1)
-                end
             end
         end
         FadeOut(configFrame, 0.08)
@@ -763,10 +755,6 @@ local function CreateConfigFrame()
             for modName, mod in pairs(whisper.modules) do
                 if mod.isTestMode and mod.ToggleTestMode then
                     mod:ToggleTestMode()
-                    if mod.testButton then
-                        mod.testButton:SetText("Test")
-                        mod.testButton:GetFontString():SetTextColor(1, 1, 1)
-                    end
                 end
             end
 
@@ -835,10 +823,6 @@ function whisper:OpenSettings(forceShow)
             for name, module in pairs(whisper.modules) do
                 if module.isTestMode and module.ToggleTestMode then
                     module:ToggleTestMode()
-                    if module.testButton then
-                        module.testButton:SetText("Test")
-                        module.testButton:GetFontString():SetTextColor(1, 1, 1)
-                    end
                 end
             end
             FadeOut(configFrame, 0.08)

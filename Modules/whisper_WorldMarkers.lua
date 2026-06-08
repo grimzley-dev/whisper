@@ -356,16 +356,14 @@ function module:BuildOptionsPanel(content, toggleBtn)
         end
     end)
 
-    local function CreateMarkerDropdown(parent, xOffset, yOffsetLabel, yOffsetBtn, width, height, isStaticMode, posIndex)
-        local posLabel
-        if not isStaticMode then
-            posLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            posLabel:SetPoint("TOPLEFT", xOffset, yOffsetLabel)
-            posLabel:SetFont(whisper.Style.STANDARD_FONT, 12, "OUTLINE")
-            posLabel:SetText(tostring(posIndex))
-            posLabel:SetTextColor(1, 1, 1)
-        end
+    local MARKER_BTN_H = 24
+    local MARKER_LABEL_GAP = 4
+    local MARKER_NUM_H = 12
+    local MARKER_LABEL_SPACE = MARKER_NUM_H + MARKER_LABEL_GAP
+    local MARKER_ROW_GAP = 10
+    local MARKER_BOTTOM_PAD = 14
 
+    local function CreateMarkerDropdown(parent, xOffset, yOffsetBtn, width, height, isStaticMode, posIndex)
         local initialVal = isStaticMode and db.staticMarker or db.order[posIndex]
 
         local markerBtn = whisper.GUI.CreateStyledButton(parent, GetMarkerName(initialVal), width, height)
@@ -373,6 +371,15 @@ function module:BuildOptionsPanel(content, toggleBtn)
         markerBtn:GetFontString():SetFont(whisper.Style.STANDARD_FONT, 14, "OUTLINE")
         markerBtn:GetFontString():ClearAllPoints()
         markerBtn:GetFontString():SetPoint("CENTER", 0, 0)
+
+        local posLabel
+        if not isStaticMode then
+            posLabel = markerBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            posLabel:SetPoint("BOTTOMLEFT", markerBtn, "TOPLEFT", 0, MARKER_LABEL_GAP)
+            posLabel:SetFont(whisper.Style.STANDARD_FONT, 12, "OUTLINE")
+            posLabel:SetText(tostring(posIndex))
+            posLabel:SetTextColor(1, 1, 1)
+        end
         markerBtn.posLabel = posLabel
 
         markerBtn:SetScript("OnClick", function(self)
@@ -448,23 +455,32 @@ function module:BuildOptionsPanel(content, toggleBtn)
     local modeBtn = whisper.GUI.CreateStyledButton(modeSection, "", 180, 24)
     modeBtn:SetPoint("TOPLEFT", INSET, CONTENT_Y)
 
-    local staticDropdown = CreateMarkerDropdown(modeSection, 210, CONTENT_Y, CONTENT_Y, 180, 24, true, 0)
+    local staticDropdown = CreateMarkerDropdown(modeSection, 210, CONTENT_Y, 180, 24, true, 0)
 
-    local orderSection = whisper.GUI.CreateSettingsSection(content, "MARKER SEQUENCE", { contentHeight = 80 })
+    local ROW1_BTN = CONTENT_Y - MARKER_LABEL_SPACE
+    local ROW2_BTN = ROW1_BTN - MARKER_BTN_H - MARKER_ROW_GAP - MARKER_LABEL_SPACE
+
+    local orderSection = whisper.GUI.CreateSettingsSection(content, "MARKER SEQUENCE", {
+        contentHeight = MARKER_LABEL_SPACE + MARKER_BTN_H + MARKER_ROW_GAP + MARKER_LABEL_SPACE + MARKER_BTN_H + MARKER_BOTTOM_PAD,
+    })
     orderSection:SetPoint("TOPLEFT", modeSection, "BOTTOMLEFT", 0, -whisper.GUI.SECTION_GAP)
-    local COL_X = { INSET, INSET + 105, INSET + 210, INSET + 315 }
-    local ROW1_LBL = CONTENT_Y
-    local ROW1_BTN = CONTENT_Y - 15
-    local ROW2_LBL = CONTENT_Y - 35
-    local ROW2_BTN = CONTENT_Y - 50
+
+    local MARKER_COLS = 4
+    local MARKER_COL_GAP = 6
+    local markerInnerWidth = whisper.GUI.PANEL_WIDTH - INSET * 2
+    local MARKER_BTN_W = math.floor((markerInnerWidth - MARKER_COL_GAP * (MARKER_COLS - 1)) / MARKER_COLS)
+    local COL_X = {}
+    for c = 1, MARKER_COLS do
+        COL_X[c] = INSET + (c - 1) * (MARKER_BTN_W + MARKER_COL_GAP)
+    end
 
     local dropdownBtns = {}
 
     for i = 1, 4 do
-        dropdownBtns[i] = CreateMarkerDropdown(orderSection, COL_X[i], ROW1_LBL, ROW1_BTN, 95, 24, false, i)
+        dropdownBtns[i] = CreateMarkerDropdown(orderSection, COL_X[i], ROW1_BTN, MARKER_BTN_W, MARKER_BTN_H, false, i)
     end
     for i = 5, 8 do
-        dropdownBtns[i] = CreateMarkerDropdown(orderSection, COL_X[i - 4], ROW2_LBL, ROW2_BTN, 95, 24, false, i)
+        dropdownBtns[i] = CreateMarkerDropdown(orderSection, COL_X[i - 4], ROW2_BTN, MARKER_BTN_W, MARKER_BTN_H, false, i)
     end
 
     local function UpdateModeText()
