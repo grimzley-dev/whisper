@@ -1421,8 +1421,10 @@ function CombatTexts:BuildOptionsPanel(content, toggleBtn)
             if self.isAnchorMode then
                 anchorBtn:SetText("End")
                 anchorBtn:GetFontString():SetTextColor(1, 0.2, 0.2)
-                deathTestBtn:SetText("Test")
-                deathTestBtn:GetFontString():SetTextColor(1, 1, 1)
+                if self.deathTestButton then
+                    self.deathTestButton:SetText("Test")
+                    self.deathTestButton:GetFontString():SetTextColor(1, 1, 1)
+                end
             else
                 anchorBtn:SetText("Anchor")
                 anchorBtn:GetFontString():SetTextColor(1, 1, 1)
