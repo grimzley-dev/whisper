@@ -56,6 +56,8 @@ local LibKeystone = LibStub and LibStub:GetLibrary("LibKeystone", true)
 local libKeystoneTable = {}
 local orlRegistered = false
 local lksRegistered = false
+local lksRequestHooked = false
+local addonLoadFrame
 
 local STANDARD_FONT = whisper.Style.STANDARD_FONT
 local BAR_TEXTURE = "Interface\\AddOns\\whisper\\Media\\whisperBar.tga"
@@ -358,59 +360,6 @@ end
 -- =========================================================================
 -- DATA MANAGEMENT
 -- =========================================================================
-local function GetPlayerNickname(fullName, shortName)
-    -- Find the unit token for this player (needed for TimelineReminders)
-    local unitToken = nil
-    local myFullName = UnitName("player") .. "-" .. GetRealmName()
-
-    if fullName == myFullName then
-        unitToken = "player"
-    else
-        for i = 1, 4 do
-            local partyUnit = "party" .. i
-            if UnitExists(partyUnit) then
-                local n, r = UnitName(partyUnit)
-                r = r or GetRealmName()
-                if (n .. "-" .. r) == fullName then
-                    unitToken = partyUnit
-                    break
-                end
-            end
-        end
-    end
-
-    -- 1. TimelineReminders Check
-    if unitToken and _G.TimelineReminders and _G.TimelineReminders.GetNickname then
-        local trNick = _G.TimelineReminders:GetNickname(unitToken)
-        if trNick and trNick ~= "" then return trNick end
-    end
-
-    -- 2. NSRT Check
-    if _G.NSAPI and _G.NSAPI.GetName then
-        local nsrtNick = _G.NSAPI:GetName(fullName, "whisper")
-        if nsrtNick and nsrtNick ~= fullName and nsrtNick ~= shortName then
-            return nsrtNick
-        end
-    end
-
-    -- 3. NickTag / ElvUI Check (with cross-realm whitespace fix)
-    local cleanFullName = string.gsub(fullName, "%s+", "")
-    if _G.NickTag and _G.NickTag.nicknames and _G.NickTag.nicknames[cleanFullName] then
-        return _G.NickTag.nicknames[cleanFullName]
-    end
-
-    if _G.ElvUI then
-        local E = unpack(_G.ElvUI)
-        if E and E.GetNickName then
-            local elvNick = E:GetNickName(cleanFullName)
-            if elvNick and elvNick ~= "" then return elvNick end
-        end
-    end
-
-    -- 4. Fallback to standard short name
-    return shortName
-end
-
 function KeystoneManager:GetMapInfo(mapID)
     local info = DUNGEON_DB[mapID]
     local name, _, _, texture = C_ChallengeMode.GetMapUIInfo(mapID)
@@ -449,33 +398,75 @@ local function GetMyFullName()
     return UnitName("player") .. "-" .. GetRealmName()
 end
 
+local function NamesMatch(nameA, nameB)
+    if not nameA or not nameB then return false end
+    return Ambiguate(nameA, "none") == Ambiguate(nameB, "none")
+end
+
+local function GetUnitFullName(unit)
+    if not unit or not UnitExists(unit) then return nil end
+    local n, r = UnitName(unit)
+    if not n then return nil end
+    if not r or r == "" then r = GetRealmName() end
+    return n .. "-" .. r
+end
+
+local function FindGroupUnitByName(playerName)
+    if not playerName then return nil end
+    if NamesMatch(playerName, "player") or NamesMatch(playerName, UnitName("player")) then
+        return "player", GetMyFullName()
+    end
+    if not IsInGroup() then return nil end
+
+    if IsInRaid() then
+        for i = 1, 40 do
+            local unit = "raid" .. i
+            local fullName = GetUnitFullName(unit)
+            if fullName and NamesMatch(fullName, playerName) then
+                return unit, fullName
+            end
+        end
+    else
+        for i = 1, 4 do
+            local unit = "party" .. i
+            local fullName = GetUnitFullName(unit)
+            if fullName and NamesMatch(fullName, playerName) then
+                return unit, fullName
+            end
+        end
+    end
+    return nil
+end
+
+local function ResolvePartyKey(sender)
+    if not sender or sender == "" or type(sender) ~= "string" then return nil end
+    local _, fullName = FindGroupUnitByName(sender)
+    if fullName then return fullName end
+    if sender:find("-", 1, true) then return sender end
+    return sender .. "-" .. GetRealmName()
+end
+
 local function BuildGroupMemberSet()
     local members = {}
-    local myRealm = GetRealmName()
-    local myFullName = GetMyFullName()
-    members[myFullName] = true
+    members[GetMyFullName()] = true
 
     if not IsInGroup() then
         return members
     end
 
-    local function AddUnit(unit)
-        if UnitExists(unit) and not UnitIsUnit(unit, "player") then
-            local n, r = UnitName(unit)
-            if n then
-                r = (r and r ~= "") and r or myRealm
-                members[n .. "-" .. r] = true
-            end
-        end
-    end
-
     if IsInRaid() then
         for i = 1, 40 do
-            AddUnit("raid" .. i)
+            local fullName = GetUnitFullName("raid" .. i)
+            if fullName and not NamesMatch(fullName, "player") then
+                members[fullName] = true
+            end
         end
     else
         for i = 1, 4 do
-            AddUnit("party" .. i)
+            local fullName = GetUnitFullName("party" .. i)
+            if fullName then
+                members[fullName] = true
+            end
         end
     end
 
@@ -483,38 +474,46 @@ local function BuildGroupMemberSet()
 end
 
 function KeystoneManager:IsGroupMember(fullName)
-    if not fullName or not IsInGroup() then return false end
+    if not fullName then return false end
+    if not IsInGroup() then
+        return NamesMatch(fullName, "player") or NamesMatch(fullName, UnitName("player"))
+    end
     local members = BuildGroupMemberSet()
-    if members[fullName] then return true end
-    local short = Ambiguate(fullName, "none")
     for name in pairs(members) do
-        if Ambiguate(name, "none") == short then return true end
+        if NamesMatch(name, fullName) then return true end
     end
     return false
 end
 
-local function NormalizeSenderName(sender)
-    if not sender or sender == "" then return nil end
-    if type(sender) ~= "string" then return nil end
-    if sender:find("-", 1, true) then return sender end
+local function GetPlayerNickname(fullName, shortName)
+    local unitToken = FindGroupUnitByName(fullName)
 
-    local myRealm = GetRealmName()
-    if Ambiguate(sender, "none") == UnitName("player") then
-        return UnitName("player") .. "-" .. myRealm
+    if unitToken and _G.TimelineReminders and _G.TimelineReminders.GetNickname then
+        local trNick = _G.TimelineReminders:GetNickname(unitToken)
+        if trNick and trNick ~= "" then return trNick end
     end
 
-    for i = 1, 4 do
-        local unit = "party" .. i
-        if UnitExists(unit) then
-            local n, r = UnitName(unit)
-            if n and (n == sender or Ambiguate(sender, "short") == n) then
-                r = r or myRealm
-                return n .. "-" .. r
-            end
+    if _G.NSAPI and _G.NSAPI.GetName then
+        local nsrtNick = _G.NSAPI:GetName(fullName, "whisper")
+        if nsrtNick and nsrtNick ~= fullName and nsrtNick ~= shortName then
+            return nsrtNick
         end
     end
 
-    return sender .. "-" .. myRealm
+    local cleanFullName = string.gsub(fullName, "%s+", "")
+    if _G.NickTag and _G.NickTag.nicknames and _G.NickTag.nicknames[cleanFullName] then
+        return _G.NickTag.nicknames[cleanFullName]
+    end
+
+    if _G.ElvUI then
+        local E = unpack(_G.ElvUI)
+        if E and E.GetNickName then
+            local elvNick = E:GetNickName(cleanFullName)
+            if elvNick and elvNick ~= "" then return elvNick end
+        end
+    end
+
+    return shortName
 end
 
 local function ProcessKeystoneInfo(unitName, info)
@@ -562,10 +561,11 @@ end
 
 local function OnLibKeystoneUpdate(keyLevel, keyMap, playerRating, playerName, channel)
     if not Keystones.enabled then return end
-    if channel ~= "PARTY" or not IsInGroup() then return end
+    if channel ~= "PARTY" then return end
     if not keyMap or keyMap <= 0 or not keyLevel or keyLevel <= 0 then return end
     if not playerName or playerName == "" then return end
-    KeystoneManager:UpdateEntry(playerName, keyMap, keyLevel)
+    -- LibKeystone PARTY channel only carries group members (same as BigWigs Keystones).
+    KeystoneManager:UpdateEntry(playerName, keyMap, keyLevel, "libkeystone")
 end
 
 function KeystoneManager:OnKeystoneUpdate(arg1, arg2, arg3, arg4)
@@ -592,21 +592,44 @@ local function EnsureExternalLibs()
         end)
         lksRegistered = true
     end
+    if LibKeystone and LibKeystone.Request and not lksRequestHooked then
+        hooksecurefunc(LibKeystone, "Request", function(channel)
+            if channel == "PARTY" and Keystones.enabled and IsInGroup() then
+                C_Timer.After(0.3, function()
+                    KeystoneManager:SyncFromOpenRaid()
+                    Interface:Refresh()
+                end)
+            end
+        end)
+        lksRequestHooked = true
+    end
 end
 
-function KeystoneManager:UpdateEntry(sender, mapID, level)
+local function TryEnsureExternalLibsOnAddonLoad(_, addon)
+    if addon == "BigWigs" or addon == "BigWigs_Core" or addon == "OpenRaid" then
+        EnsureExternalLibs()
+        HookExternalKeys()
+        if Keystones.enabled and IsInGroup() then
+            KeystoneManager:RequestKeys()
+        end
+    end
+end
+
+function KeystoneManager:UpdateEntry(sender, mapID, level, source)
     if not sender or not mapID or not level then return end
     mapID = tonumber(mapID)
     level = tonumber(level)
     if not mapID or not level or mapID == 0 or level == 0 then return end
 
-    local fullName = NormalizeSenderName(sender)
+    local fullName = ResolvePartyKey(sender)
     if not fullName then return end
 
     local myFullName = GetMyFullName()
-    local isMe = (fullName == myFullName or Ambiguate(fullName, "none") == UnitName("player"))
+    local isMe = NamesMatch(fullName, myFullName)
 
-    if not IsInGroup() then
+    if source == "libkeystone" then
+        if not IsInGroup() and not isMe then return end
+    elseif not IsInGroup() then
         if not isMe then return end
     elseif not isMe and not self:IsGroupMember(fullName) then
         return
@@ -637,18 +660,23 @@ function KeystoneManager:SyncFromOpenRaid()
     local all = ORL.GetAllKeystonesInfo()
     if not all then return end
     for unitName, info in pairs(all) do
-        local fullName = NormalizeSenderName(unitName) or unitName
-        if self:IsGroupMember(fullName) or Ambiguate(fullName, "none") == UnitName("player") then
+        local fullName = ResolvePartyKey(unitName) or unitName
+        if self:IsGroupMember(fullName) then
             ProcessKeystoneInfo(unitName, info)
         end
     end
 end
 
 function KeystoneManager:RequestKeys()
-    if not IsInGroup() then return end
+    EnsureExternalLibs()
+
+    if not IsInGroup() then
+        self:ScanOwnKey()
+        Interface:Refresh()
+        return
+    end
 
     self:ScanOwnKey()
-    EnsureExternalLibs()
 
     local channel = GetGroupChannel()
     if channel then
@@ -671,7 +699,7 @@ function KeystoneManager:RequestKeys()
         pcall(function() LibKeystone.Request("PARTY") end)
     end
 
-    Interface:Refresh()
+    C_Timer.After(0.3, function() Interface:Refresh() end)
 end
 
 function KeystoneManager:ScanOwnKey()
@@ -712,10 +740,10 @@ function KeystoneManager:CleanParty()
     local validMembers = BuildGroupMemberSet()
 
     for fullName, data in pairs(self.partyData) do
-        local isMe = fullName == myFullName or Ambiguate(fullName, "none") == UnitName("player")
+        local isMe = NamesMatch(fullName, myFullName)
         local inScope = isMe
         if IsInGroup() then
-            inScope = isMe or validMembers[fullName] or self:IsGroupMember(fullName)
+            inScope = isMe or self:IsGroupMember(fullName)
         end
         if not inScope
             or not data.level or data.level == 0
@@ -744,9 +772,9 @@ function Comms:OnMessage(_, prefix, msg, _, sender)
     end
     local mapID, level = msg:match("WHISPER:KEY:(%d+):(%d+)")
     if mapID and level and IsInGroup() then
-        local fullName = NormalizeSenderName(sender)
-        if fullName and (KeystoneManager:IsGroupMember(fullName) or Ambiguate(fullName, "none") == UnitName("player")) then
-            KeystoneManager:UpdateEntry(sender, tonumber(mapID), tonumber(level))
+        local fullName = ResolvePartyKey(sender)
+        if fullName and KeystoneManager:IsGroupMember(fullName) then
+            KeystoneManager:UpdateEntry(sender, tonumber(mapID), tonumber(level), "whisper")
         end
     end
 end
@@ -1009,9 +1037,9 @@ function Interface:Refresh()
     for fullName, data in pairs(KeystoneManager.partyData) do
         if not data.mapID or not data.level or data.mapID == 0 or data.level == 0 then
             -- skip incomplete cache entries
-        elseif not IsInGroup() and fullName ~= myFullName and Ambiguate(fullName, "none") ~= UnitName("player") then
+        elseif not IsInGroup() and not NamesMatch(fullName, myFullName) then
             -- skip non-party entries when solo
-        elseif IsInGroup() and fullName ~= myFullName and Ambiguate(fullName, "none") ~= UnitName("player")
+        elseif IsInGroup() and not NamesMatch(fullName, myFullName)
             and not KeystoneManager:IsGroupMember(fullName) then
             -- skip players not in current group
         else
@@ -1206,6 +1234,12 @@ function Keystones:Init()
     EnsureExternalLibs()
     HookExternalKeys()
 
+    if not addonLoadFrame then
+        addonLoadFrame = CreateFrame("Frame")
+        addonLoadFrame:RegisterEvent("ADDON_LOADED")
+        addonLoadFrame:SetScript("OnEvent", TryEnsureExternalLibsOnAddonLoad)
+    end
+
     if not RegisterAddonMessagePrefix(COMM_PREFIX) then return end
 
     if not eventFrame then
@@ -1223,8 +1257,13 @@ function Keystones:Init()
                 end
             elseif event == "GROUP_ROSTER_UPDATE" then
                 KeystoneManager:CleanParty()
-                C_Timer.After(1, function() KeystoneManager:RequestKeys() end)
-                C_Timer.After(3, function() KeystoneManager:RequestKeys() end)
+                C_Timer.After(0.5, function() KeystoneManager:RequestKeys() end)
+                C_Timer.After(1.5, function() KeystoneManager:RequestKeys() end)
+                C_Timer.After(4, function() KeystoneManager:RequestKeys() end)
+            elseif event == "UNIT_CONNECTION" then
+                if select(2, ...) then
+                    C_Timer.After(1, function() KeystoneManager:RequestKeys() end)
+                end
             elseif event == "PLAYER_ENTERING_WORLD" then
                 isInActiveChallenge = C_ChallengeMode.IsChallengeModeActive()
                 KeystoneManager:CleanParty()
@@ -1270,6 +1309,7 @@ function Keystones:Init()
 
     eventFrame:RegisterEvent("CHAT_MSG_ADDON")
     eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+    eventFrame:RegisterEvent("UNIT_CONNECTION")
     eventFrame:RegisterEvent("BAG_UPDATE")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
