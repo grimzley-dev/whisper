@@ -108,6 +108,7 @@ local DEATH_SLIDE_IN = 14
 local DEATH_SCROLL_LERP = 16
 local TEST_DEATH_INTERVAL = 1.8
 local MAX_DEATH_LINES = 20
+local PREVIEW_PAD = 4
 local DEFAULT_OFFSET_X_PERCENT = 0
 local DEFAULT_OFFSET_Y_PERCENT = 7
 
@@ -558,6 +559,81 @@ local function ShowStaticDeathPlaceholders(frame)
     CombatTexts:UpdateDeathFrameSize()
 end
 
+function CombatTexts:GetPreviewOverlayBounds(containerFrame)
+    if not containerFrame then
+        return 0, 0, MIN_FRAME_WIDTH + (PREVIEW_PAD * 2), LINE_HEIGHT + (PREVIEW_PAD * 2)
+    end
+
+    local containerWidth = containerFrame:GetWidth() or MIN_FRAME_WIDTH
+    local centerX = containerWidth / 2
+    local minLeft = math.huge
+    local maxRight = -math.huge
+    local minTop = 0
+    local maxBottom = 0
+    local hasContent = false
+    local spacing = GetLineSpacing()
+    local yOffset = 0
+
+    for _, msgType in ipairs(MESSAGE_TYPES) do
+        local frame = messageFrames[msgType]
+        if frame and frame:IsShown() then
+            local frameHeight = frame:GetHeight() or LINE_HEIGHT
+            local frameWidth = frame:GetWidth() or MIN_FRAME_WIDTH
+
+            if frame.entries then
+                for _, entry in ipairs(frame.entries) do
+                    if entry.fs and entry.fs:IsShown() then
+                        local textWidth = entry.fs:GetStringWidth()
+                        if not textWidth or textWidth <= 0 then
+                            textWidth = MeasureTextWidth(entry.plainText or entry.fs:GetText())
+                        end
+                        textWidth = math_max(textWidth, MIN_FRAME_WIDTH)
+                        local entryY = entry.currentOffsetY or GetSlotY(entry.slotIndex or 1)
+                        local top = -yOffset + entryY
+                        local bottom = top - LINE_HEIGHT
+                        local left = centerX - (textWidth / 2)
+                        local right = centerX + (textWidth / 2)
+
+                        minLeft = math_min(minLeft, left)
+                        maxRight = math_max(maxRight, right)
+                        minTop = math_max(minTop, top)
+                        maxBottom = math_min(maxBottom, bottom)
+                        hasContent = true
+                    end
+                end
+            else
+                local textWidth = frameWidth
+                if frame.text then
+                    textWidth = math_max(frame.text:GetStringWidth() or MeasureTextWidth(frame.text:GetText()), MIN_FRAME_WIDTH)
+                end
+                local top = -yOffset
+                local bottom = top - frameHeight
+                local left = centerX - (textWidth / 2)
+                local right = centerX + (textWidth / 2)
+
+                minLeft = math_min(minLeft, left)
+                maxRight = math_max(maxRight, right)
+                minTop = math_max(minTop, top)
+                maxBottom = math_min(maxBottom, bottom)
+                hasContent = true
+            end
+
+            yOffset = yOffset + frameHeight + spacing
+        end
+    end
+
+    if not hasContent then
+        return -PREVIEW_PAD, PREVIEW_PAD, containerWidth + (PREVIEW_PAD * 2), LINE_HEIGHT + (PREVIEW_PAD * 2)
+    end
+
+    minLeft = minLeft - PREVIEW_PAD
+    maxRight = maxRight + PREVIEW_PAD
+    minTop = minTop + PREVIEW_PAD
+    maxBottom = maxBottom - PREVIEW_PAD
+
+    return minLeft, minTop, maxRight - minLeft, minTop - maxBottom
+end
+
 local function ApplyCombatTextStyles(db)
     if not db then return end
     db.EnterCombat = db.EnterCombat or {}
@@ -663,6 +739,9 @@ function CombatTexts:EnsureTestOverlay()
                 end
             end
             return frames
+        end,
+        getBoundsRect = function(containerFrame)
+            return CombatTexts:GetPreviewOverlayBounds(containerFrame)
         end,
         dragMode = "center",
         canDrag = function() return not InCombatLockdown() and container end,

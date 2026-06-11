@@ -2,10 +2,14 @@
 ## Title: whisper
 ## Notes: whisper Guild Utility Addon
 ## Author: Grimzley
-## Version: 1.1.10
+## Version: 1.1.11
 ## SavedVariables: whisperDB
 ## IconTexture: Interface\AddOns\whisper\Media\whisperLogo
 ## Category: whisper
+
+## Libraries
+Libs/LibStub/LibStub.lua
+Libs/LibKeystone/LibKeystone.lua
 
 ## Core
 whisper.lua

@@ -73,6 +73,58 @@ function whisper.TestOverlay.Create(opts)
         end
     end
 
+    function state:ApplyLayout()
+        local container = self:GetContainer()
+        if not container or not self.overlay then return end
+
+        self.overlay:ClearAllPoints()
+        if self.opts.getBoundsRect then
+            local left, top, width, height = self.opts.getBoundsRect(container)
+            if width and width > 0 and height and height > 0 then
+                self.overlay:SetPoint("TOPLEFT", container, "TOPLEFT", left or 0, top or 0)
+                self.overlay:SetSize(width, height)
+            else
+                self.overlay:SetAllPoints(container)
+            end
+        else
+            self.overlay:SetAllPoints(container)
+        end
+        self.overlay:Show()
+        self.overlay:Raise()
+        self._lastW = container:GetWidth()
+        self._lastH = container:GetHeight()
+        self._layoutTick = GetTime()
+    end
+
+    local function SyncOverlayLayout()
+        if not state.opts.isActive or not state.opts.isActive() then
+            if state._syncFrame then
+                state._syncFrame:SetScript("OnUpdate", nil)
+            end
+            return
+        end
+        if not state.overlay or not state.overlay:IsShown() then return end
+        local container = state:GetContainer()
+        if not container then return end
+
+        if state.opts.getBoundsRect then
+            state:ApplyLayout()
+            return
+        end
+
+        local w, h = container:GetWidth(), container:GetHeight()
+        if w ~= state._lastW or h ~= state._lastH then
+            state:ApplyLayout()
+        end
+    end
+
+    function state:StartSync()
+        if not self._syncFrame then
+            self._syncFrame = CreateFrame("Frame")
+        end
+        self._syncFrame:SetScript("OnUpdate", SyncOverlayLayout)
+    end
+
     function state:EnsureCreated()
         if self.overlay then return end
 
@@ -173,8 +225,7 @@ function whisper.TestOverlay.Create(opts)
             container:ClearAllPoints()
             container:SetPoint("CENTER", UIParent, "BOTTOMLEFT", state.frameStartX + deltaX, state.frameStartY + deltaY)
 
-            overlay:ClearAllPoints()
-            overlay:SetAllPoints(container)
+            state:ApplyLayout()
         end)
 
         self.overlay = overlay
@@ -193,15 +244,16 @@ function whisper.TestOverlay.Create(opts)
         end
 
         self:EnsureCreated()
-        self.overlay:ClearAllPoints()
-        self.overlay:SetAllPoints(container)
-        self.overlay:Show()
-        self.overlay:Raise()
+        self:ApplyLayout()
+        self:StartSync()
     end
 
     function state:Hide()
         self.dragging = false
         self.hovered = false
+        if self._syncFrame then
+            self._syncFrame:SetScript("OnUpdate", nil)
+        end
         if self.overlay then
             if self.overlay.label then self.overlay.label:Hide() end
             self.overlay:Hide()

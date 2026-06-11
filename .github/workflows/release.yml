@@ -34,7 +34,7 @@ jobs:
         run: |
           git archive --format=zip --prefix=whisper/ -o "whisper-v${{ steps.version.outputs.version }}.zip" HEAD \
             whisper.toc whisper.lua whisper_Config.lua whisper_TestOverlay.lua \
-            Media Modules
+            Libs Media Modules
 
       - name: Upload GitHub Release asset
         uses: softprops/action-gh-release@v2

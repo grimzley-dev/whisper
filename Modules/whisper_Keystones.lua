@@ -138,6 +138,14 @@ local REMINDER_TEXT = {
     talents = "|cffFFFFFFCheck Talents|r",
 }
 
+local TEST_KEYSTONE_PLAYERS = {
+    { name = "Thrall",   class = "SHAMAN",  level = 22, map = 557 },
+    { name = "Jaina",    class = "MAGE",    level = 18, map = 558 },
+    { name = "Sylvanas", class = "HUNTER",  level = 15, map = 559 },
+    { name = "Tyrande",  class = "PRIEST",  level = 12, map = 560 },
+    { name = "Varian",   class = "WARRIOR", level = 10, map = 501 },
+}
+
 local function IsInPartyGroup()
     return IsInGroup() and not IsInRaid()
 end
@@ -363,13 +371,16 @@ end
 function KeystoneManager:GetMapInfo(mapID)
     local info = DUNGEON_DB[mapID]
     local name, _, _, texture = C_ChallengeMode.GetMapUIInfo(mapID)
+    -- A nil name means the map ID isn't a real current challenge map (e.g. a
+    -- stale key cached from a previous season). Callers use this to skip it.
+    local resolved = name ~= nil
     if not name then name = format("Unknown Dungeon (%d)", mapID) end
     local displayName = name
     if (whisperDB.keystones.compactMode or whisperDB.keystones.useAbbreviation or whisperDB.keystones.transparentMode) and info then
         displayName = info.abbr
     end
     if not texture then texture = 525134 end
-    return displayName, texture
+    return displayName, texture, resolved
 end
 
 function KeystoneManager:GetTeleportID(mapID)
@@ -616,6 +627,7 @@ local function TryEnsureExternalLibsOnAddonLoad(_, addon)
 end
 
 function KeystoneManager:UpdateEntry(sender, mapID, level, source)
+    if Keystones.isTestMode then return end
     if not sender or not mapID or not level then return end
     mapID = tonumber(mapID)
     level = tonumber(level)
@@ -656,6 +668,7 @@ function KeystoneManager:UpdateEntry(sender, mapID, level, source)
 end
 
 function KeystoneManager:SyncFromOpenRaid()
+    if Keystones.isTestMode then return end
     if not IsInGroup() or not ORL or not ORL.GetAllKeystonesInfo then return end
     local all = ORL.GetAllKeystonesInfo()
     if not all then return end
@@ -668,6 +681,11 @@ function KeystoneManager:SyncFromOpenRaid()
 end
 
 function KeystoneManager:RequestKeys()
+    if Keystones.isTestMode then
+        Interface:Refresh()
+        return
+    end
+
     EnsureExternalLibs()
 
     if not IsInGroup() then
@@ -703,6 +721,7 @@ function KeystoneManager:RequestKeys()
 end
 
 function KeystoneManager:ScanOwnKey()
+    if Keystones.isTestMode then return end
     local mapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
     local level = C_MythicPlus.GetOwnedKeystoneLevel()
 
@@ -797,6 +816,20 @@ local function HookExternalKeys()
     end
 end
 
+function Keystones:BuildTestPartyData()
+    local data = {}
+    for _, p in ipairs(TEST_KEYSTONE_PLAYERS) do
+        data[p.name] = {
+            mapID = p.map,
+            level = p.level,
+            displayName = p.name,
+            classColor = C_ClassColor.GetClassColor(p.class),
+            isPlayer = false,
+        }
+    end
+    return data
+end
+
 function Keystones:ToggleTestMode()
     self.isTestMode = not self.isTestMode
 
@@ -817,27 +850,13 @@ function Keystones:ToggleTestMode()
     end
 
     if self.isTestMode then
-        KeystoneManager.partyData = {}
-        local fakePlayers = {
-            { name = "Thrall",    class = "SHAMAN", level = 20, map = 501 },
-            { name = "Jaina",     class = "MAGE",   level = 24, map = 502 },
-            { name = "Sylvanas",  class = "HUNTER", level = 18, map = 503 },
-            { name = "Illidan",   class = "DEMONHUNTER", level = 26, map = 504 },
-            { name = "Anduin",    class = "PALADIN", level = 15, map = 505 },
-        }
-        for _, p in ipairs(fakePlayers) do
-            local color = C_ClassColor.GetClassColor(p.class)
-            KeystoneManager.partyData[p.name] = {
-                mapID = p.map,
-                level = p.level,
-                displayName = p.name,
-                classColor = color,
-                isPlayer = false
-            }
-        end
+        self.testPartyData = self:BuildTestPartyData()
+        Interface:Create()
+        Interface:UpdatePosition()
         Interface:Refresh()
         self:UpdateInterfaceTestOverlay()
     else
+        self.testPartyData = nil
         rerollReminderShown = false
         talentReminderShown = false
         if self.alertFrame then
@@ -1009,21 +1028,23 @@ function Interface:Refresh()
     if not self.container then self:Create() end
     if not Keystones.enabled and not Keystones.isTestMode then return end
 
-    if InCombatLockdown() then
+    if InCombatLockdown() and not Keystones.isTestMode then
         self.container:Hide()
         pendingUpdate = true
         return
     end
 
-    local _, instanceType = IsInInstance()
-    if instanceType == "raid" then
-        self.container:Hide()
-        return
-    end
+    if not Keystones.isTestMode then
+        local _, instanceType = IsInInstance()
+        if instanceType == "raid" then
+            self.container:Hide()
+            return
+        end
 
-    if isInActiveChallenge then
-        self.container:Hide()
-        return
+        if isInActiveChallenge then
+            self.container:Hide()
+            return
+        end
     end
 
     local isCompact = whisperDB.keystones.compactMode or whisperDB.keystones.transparentMode
@@ -1034,27 +1055,44 @@ function Interface:Refresh()
 
     local list = {}
     local myFullName = GetMyFullName()
-    for fullName, data in pairs(KeystoneManager.partyData) do
+    local partySource = Keystones.isTestMode and Keystones.testPartyData or KeystoneManager.partyData
+
+    for fullName, data in pairs(partySource or {}) do
         if not data.mapID or not data.level or data.mapID == 0 or data.level == 0 then
-            -- skip incomplete cache entries
+            -- skip incomplete entries
+        elseif Keystones.isTestMode then
+            local dName, texture = KeystoneManager:GetMapInfo(data.mapID)
+            local portID = KeystoneManager:GetTeleportID(data.mapID)
+            tinsert(list, {
+                name = data.displayName or "Unknown",
+                classColor = data.classColor,
+                level = data.level,
+                dungeonName = dName,
+                texture = texture,
+                portID = portID,
+                mapID = data.mapID,
+                isPlayer = data.isPlayer
+            })
         elseif not IsInGroup() and not NamesMatch(fullName, myFullName) then
             -- skip non-party entries when solo
         elseif IsInGroup() and not NamesMatch(fullName, myFullName)
             and not KeystoneManager:IsGroupMember(fullName) then
             -- skip players not in current group
         else
-        local dName, texture = KeystoneManager:GetMapInfo(data.mapID)
-        local portID = KeystoneManager:GetTeleportID(data.mapID)
-        tinsert(list, {
-            name = data.displayName or "Unknown",
-            classColor = data.classColor,
-            level = data.level,
-            dungeonName = dName,
-            texture = texture,
-            portID = portID,
-            mapID = data.mapID,
-            isPlayer = data.isPlayer
-        })
+            local dName, texture, resolved = KeystoneManager:GetMapInfo(data.mapID)
+            if resolved then
+                local portID = KeystoneManager:GetTeleportID(data.mapID)
+                tinsert(list, {
+                    name = data.displayName or "Unknown",
+                    classColor = data.classColor,
+                    level = data.level,
+                    dungeonName = dName,
+                    texture = texture,
+                    portID = portID,
+                    mapID = data.mapID,
+                    isPlayer = data.isPlayer
+                })
+            end
         end
     end
 
